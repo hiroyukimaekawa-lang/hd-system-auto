@@ -8,7 +8,9 @@
   "scripts": {
     "start": "node src/cli.js run --config config/jobs.csv",
     "dry-run": "node src/cli.js run --config config/jobs.csv --dry-run",
-    "check": "node --check src/cli.js && node --check src/google-maps.js && node --check src/output.js"
+    "desktop": "node desktop/server.js",
+    "check": "node --check src/cli.js && node --check src/google-maps.js && node --check src/tabelog.js && node --check src/output.js && node --check src/drive.js && node --check src/drive-pipeline.js && node --check src/gas-monitor.js && node --check src/management-sheet.js && node --check src/sheet-command.js && node --check desktop/server.js && node --check desktop/public/app.js",
+    "test": "node --test"
   },
   "dependencies": {
     "playwright": "^1.54.1"

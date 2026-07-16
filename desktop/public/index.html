@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="ja">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HD AIアシスタント</title><link rel="stylesheet" href="/styles.css"></head>
+<body>
+  <main class="app">
+    <header><div class="brand"><img src="/assistant-icon.png" alt=""><div><h1>HD AIアシスタント</h1><p><span class="status-dot"></span> ローカルで稼働中</p></div></div><button id="help" class="ghost">できること</button></header>
+    <section id="messages" class="messages" aria-live="polite">
+      <article class="message assistant"><img src="/assistant-icon.png" alt=""><div class="bubble"><strong>こんにちは。HDの作業をお手伝いします。</strong><p>管理シートやDriveの状態を、いつもの言葉で確認できます。</p></div></article>
+      <div class="suggestions"><button data-prompt="茨城県の取得対象を確認して">取得対象を確認</button><button data-prompt="土浦市のDrive接続を確認して">Drive接続確認</button><button data-prompt="設定を確認して">設定状態</button></div>
+    </section>
+    <form id="chat"><textarea id="input" rows="1" placeholder="例：茨城県の取得対象を確認して" autofocus></textarea><button id="send" type="submit" aria-label="送信">➜</button></form>
+    <footer>秘密情報は画面に表示しません。実行操作は確認付きで追加予定です。</footer>
+  </main><script src="/app.js"></script>
+</body></html>

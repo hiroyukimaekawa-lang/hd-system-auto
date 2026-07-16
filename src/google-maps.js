@@ -1,11 +1,4 @@
-const sleep = ms => new Promise(resolve => setTimeout(resolve, ms));
-
-function splitAddress(address) {
-  const pref = address.match(/(北海道|東京都|京都府|大阪府|.{2,3}県)/)?.[1] || '';
-  const rest = pref ? address.slice(address.indexOf(pref) + pref.length) : address;
-  const city = rest.match(/^(.+?(?:市|区|町|村))/)?.[1] || '';
-  return { pref, city };
-}
+import { backoff, isTargetAddress, sleep, splitAddress } from './scraper-utils.js';
 
 async function textOrEmpty(locator) {
   try { return (await locator.first().innerText({ timeout: 1500 })).trim(); } catch { return ''; }
@@ -32,9 +25,16 @@ async function collectLinks(page, maxItems, log) {
 }
 
 async function scrapePlace(page, item, job) {
-  await page.goto(item.url, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  let lastError;
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try { await page.goto(item.url, { waitUntil: 'domcontentloaded', timeout: 45000 }); lastError = null; break; }
+    catch (error) { lastError = error; if (attempt < 2) await sleep(backoff(attempt)); }
+  }
+  if (lastError) throw lastError;
   await page.locator('[role="main"] h1').first().waitFor({ timeout: 12000 }).catch(() => {});
   const name = await textOrEmpty(page.locator('[role="main"] h1')) || item.name;
+  const closedText = await textOrEmpty(page.locator('[role="main"]'));
+  if (/閉業|閉店/.test(closedText)) return null;
   const addressRaw = await attrOrEmpty(page.locator('button[data-item-id="address"]'), 'aria-label');
   const address = addressRaw.replace(/^住所[：:]\s*/, '').trim();
   const phoneId = await attrOrEmpty(page.locator('button[data-item-id^="phone:tel:"]'), 'data-item-id');
@@ -69,8 +69,8 @@ export async function runGoogleMapsJob(browser, job, existingUrls, onRecord, log
     if (existingUrls.has(item.url)) { log(`再開: ${index + 1}/${links.length} 取得済みをスキップ`); continue; }
     try {
       const record = await scrapePlace(page, item, job);
-      if (!record['住所'] || (job.area.includes('市') && !record['住所'].includes(job.area.match(/[^\s]+市/)?.[0] || job.area))) {
-        log(`除外: ${record['店名'] || item.name}（住所不一致または未取得）`); continue;
+      if (!record || !record['住所'] || !isTargetAddress(record['住所'], job.area)) {
+        log(`除外: ${record?.['店名'] || item.name}（閉業、住所不一致または未取得）`); continue;
       }
       onRecord(record); existingUrls.add(item.url); saved++;
       log(`保存: ${index + 1}/${links.length} ${record['店名']}`);
