@@ -1,0 +1,19 @@
+{
+  "name": "comdesk-playwright-importer",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "install-browser": "playwright install chromium",
+    "login": "node src/login.js",
+    "inspect": "node src/inspect.js",
+    "import": "node src/import.js",
+    "import:dry": "node src/import.js --dry-run"
+  },
+  "dependencies": {
+    "csv-parse": "^6.1.0",
+    "dotenv": "^17.2.3",
+    "playwright": "^1.58.2",
+    "xlsx": "^0.18.5"
+  }
+}

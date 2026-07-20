@@ -1,5 +1,63 @@
 # HD Scraper Automation
 
+## 営業リストを1回の操作で作る（統合版）
+
+### 取得済みの稲敷市・美浦村を統合する
+
+Googleマップや食べログを再取得せず、確認済みのGoogleスプレッドシート内にある`04_SALES_`シートだけを結合します。美浦村側の元ファイル名が「三浦市」でも、処理上は必ず美浦村として扱います。
+
+```bash
+npm run hd:merge -- --areas=美浦村,稲敷市 --category=飲食店 --project-name=茨城県_稲敷市・美浦村 --dry-run
+```
+
+この確認実行では`稲敷市・美浦村.xlsx`を生成し、Comdeskへの投入予定を表示しますが、Comdeskを変更しません。美浦村35件・稲敷市114件と一致しない場合、列名や列順が一致しない場合は安全に停止します。本番投入はdry-runの結果を確認してから`--execute`を明示した場合だけ行われます。
+
+プロジェクト作成後に通知承認だけ失敗した場合は、プロジェクトを再作成せず次で承認処理だけ再開できます。
+
+```bash
+npm run hd:merge:finalize -- --areas=美浦村,稲敷市 --category=飲食店 --project-name=茨城県_稲敷市・美浦村
+```
+
+このコマンドは、対象プロジェクト名・ワークグループ・通知内プロジェクトIDが一致する通知だけを開きます。画面ローダーの終了を待ってから、新規追加・重複除外を確認して送信し、完了通知まで確認します。新しいプロジェクト登録は行いません。
+
+このフォルダでターミナルを開き、初回だけ `npm install` を実行してください。Comdeskへの登録前には、既存のログイン状態が `comdesk-playwright-importer/.auth/chrome` に残っていることも確認します。パスワードを設定ファイルへ書く必要はありません。
+
+### 1. まず安全確認
+
+次は計画を表示してジョブ記録を作るだけです。Googleマップ、食べログ、Comdeskにはアクセスせず、データも変更しません。
+
+```bash
+npm run hd:dry -- --prefecture=茨城県 --area=対象市区町村 --category=飲食店
+```
+
+最後に表示される `jobId` と `stateFile` を控えてください。
+
+### 2. リスト作成からComdesk登録まで実行
+
+```bash
+npm run hd:run -- --prefecture=茨城県 --area=対象市区町村 --category=飲食店
+```
+
+プロジェクト名は `都道府県_市区町村`、ワークグループは判定したジャンルになります。通知は20秒ごと、最大15分確認します。成功済みジャンルは再実行しても登録しません。
+
+### 3. 途中から再開
+
+```bash
+npm run hd:resume -- --job-id=表示されたジョブID
+```
+
+失敗したジャンルと未完了工程だけを再開します。CAPTCHA、ログイン切れ、画面変更、通知のプロジェクト名・ワークグループ・プロジェクトID不一致、新規/重複の処理方法を確認できない場合は送信せず停止します。
+
+### 4. Comdeskへ登録せずファイル作成まで
+
+```bash
+npm run hd:run -- --prefecture=茨城県 --area=対象市区町村 --category=飲食店 --stop-before=comdesk
+```
+
+結果は `data/jobs/ジョブID/` に保存されます。`state.json` は現在状態、`job.log` は取得ログ、`raw/` は取得途中の原本、`outputs/` は営業対象・確認対象・除外対象・取得失敗とジャンル別Comdesk CSV、`screenshots/` は画面停止時の画像です。原本は移動・削除しません。
+
+判定ルールは安全側の初期値です。電話番号なしは「確認対象」、明確なチェーン名・本部・ビル管理・大型商業施設・閉業表記は「除外対象」にします。実運用前に `outputs/review.csv` と `outputs/excluded.csv` を人が確認してください。
+
 現在手動で操作しているGoogleマップ・食べログ拡張機能を、無人実行するためのCLI版です。取得CLIに加え、Phase 2のDrive自動振り分け・GAS無人実行・完成CSV検知まで実装済みです。
 既存の `hd-system` とは別リポジトリで管理する前提です。
 
@@ -132,8 +190,21 @@ PCを閉じたりスリープした場合は動きません。完全な「寝て
 
 ## 次のPhase
 
-1. Slack Socket Mode、ジョブキュー、進捗・キャンセル・通知
-2. Docker化、常時起動環境、自動再開
+1. Docker化、常時起動環境への配置
+2. Slackへの完成CSV直接添付（現在はDriveリンク）
+
+## Slack Socket Mode
+
+`config/slack-app-manifest.yml` をSlack Appのマニフェストとして使用し、Bot Token、App Token、Signing Secret、許可チャンネルIDを `.env` へ設定します。
+
+```text
+SLACK_BOT_TOKEN=xoxb-...
+SLACK_APP_TOKEN=xapp-...
+SLACK_SIGNING_SECRET=...
+SLACK_ALLOWED_CHANNEL_IDS=C0123456789
+```
+
+設定後に `./scripts/install-slack-service.sh` を実行すると、Macログイン中はSocket Modeが常駐します。対応コマンドは `/hd-list`、`/hd-list-sheet`、`/hd-list-status`、`/hd-list-cancel` です。ジョブは `state/jobs.sqlite` に保存され、再起動後は実行途中のジョブを待ち行列へ戻して再開します。
 
 ## 注意
 

@@ -1,0 +1,29 @@
+display_information:
+  name: HD List Automation
+features:
+  bot_user:
+    display_name: HD List Automation
+    always_online: true
+  slash_commands:
+    - command: /hd-list
+      description: 市区町村とジャンルを指定して取得
+      usage_hint: 飲食店 茨城県 土浦市 カフェ --sources=googlemaps,tabelog --max=100
+    - command: /hd-list-sheet
+      description: 管理シートの対象市町村を一括取得
+      usage_hint: 茨城県 飲食店
+    - command: /hd-list-status
+      description: ジョブの状態を確認
+      usage_hint: ジョブID
+    - command: /hd-list-cancel
+      description: ジョブをキャンセル
+      usage_hint: ジョブID
+oauth_config:
+  scopes:
+    bot:
+      - commands
+      - chat:write
+      - files:write
+settings:
+  socket_mode_enabled: true
+  org_deploy_enabled: false
+  token_rotation_enabled: false

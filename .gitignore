@@ -1,10 +1,14 @@
 .DS_Store
 .env
+data/jobs/
+outputs/*/qa/
 .env.*
 !.env.example
 node_modules/
 data/
 state/*.jsonl
+state/*.sqlite*
+data/jobs/
 output/*.csv
 *.log
 *service-account*.json

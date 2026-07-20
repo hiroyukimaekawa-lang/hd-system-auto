@@ -1,0 +1,12 @@
+node_modules/
+.env
+.auth/
+data/inbox/*.csv
+data/success/*.csv
+data/failed/*.csv
+data/results/*
+.work/
+!data/inbox/.gitkeep
+!data/success/.gitkeep
+!data/failed/.gitkeep
+!data/results/.gitkeep

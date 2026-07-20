@@ -10,6 +10,7 @@ import { discoverLocation, DriveLocationError, GasWebAppClient } from '../src/dr
 import { driveCsvName } from '../src/drive-pipeline.js';
 import { groupBelowMinimumByRoute, markSheetJob } from '../src/management-sheet.js';
 import { parseSheetCommand } from '../src/sheet-command.js';
+import { createJobId, JobQueue } from '../src/queue.js';
 
 test('要求されたCSV列数と順序を維持する', () => {
   assert.equal(GOOGLE_MAPS_HEADERS.length, 20); assert.equal(TABELOG_HEADERS.length, 19);
@@ -85,4 +86,11 @@ test('管理マスタ状態更新をGASへ渡す', async () => {
 test('管理マスタSlackコマンドを解析する', () => {
   assert.deepEqual(parseSheetCommand('茨城県 飲食店'), { prefecture: '茨城県', industry: '飲食店' });
   assert.throws(() => parseSheetCommand('茨城県'), /使い方/);
+});
+
+test('SQLiteジョブキューは受付・取消・再読込できる', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-queue-')); const file = path.join(dir, 'jobs.sqlite');
+  const queue = new JobQueue(file); queue.add({ id:'job-1', payload:{ city:'土浦市' }, channelId:'C1', threadTs:'1.0' });
+  assert.equal(queue.next().payload.city, '土浦市'); queue.cancel('job-1'); assert.equal(queue.get('job-1').status, 'cancelled');
+  assert.match(createJobId(new Date('2026-07-17T00:00:00+09:00')), /^20260717-\d{5}$/);
 });

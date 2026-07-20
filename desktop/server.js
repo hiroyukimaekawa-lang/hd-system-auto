@@ -6,11 +6,15 @@ import { fileURLToPath } from 'node:url';
 import { GasWebAppClient } from '../src/drive.js';
 import { loadEnv } from '../src/env.js';
 import { listSheetJobs } from '../src/management-sheet.js';
+import { createJobId, JobQueue } from '../src/queue.js';
+import { SerialWorker } from '../src/worker.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 loadEnv(path.join(root, '.env'));
 const publicDir = path.join(root, 'desktop', 'public');
 const port = Number(process.env.HD_ASSISTANT_PORT) || 43117;
+const queue = new JobQueue(path.join(root, 'state', 'jobs.sqlite'));
+const worker = new SerialWorker({ queue, root }); worker.start();
 
 function json(response, status, value) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -37,6 +41,20 @@ async function chat(message) {
   if (/設定/.test(text)) {
     const checks = [['GAS Webアプリ', process.env.GAS_WEB_APP_URL], ['共有シークレット', process.env.GAS_WEB_APP_SECRET], ['飲食店ルート', process.env.GOOGLE_DRIVE_RESTAURANT_ROOT_FOLDER_ID]];
     return { text: checks.map(([name, value]) => `${value ? '✓' : '×'} ${name}`).join('\n') };
+  }
+  if (/状態|進捗|ジョブ/.test(text) && !/取得開始|取得して/.test(text)) {
+    const jobs = queue.list(10);
+    if (!jobs.length) return { text:'まだジョブはありません。' };
+    return { text:jobs.map(job => `${job.id}｜${job.payload.city} ${job.payload.genre}｜${job.status}\n${job.progress || ''}`).join('\n\n') };
+  }
+  if (/取得開始|取得して|取得を開始/.test(text)) {
+    const city = text.match(/([一-龠ぁ-んァ-ヶー]+(?:市|町|村))/)?.[1];
+    if (!city) return { text:'市区町村を指定してください。例：「土浦市のカフェを取得開始して」' };
+    const genres = ['カフェ','居酒屋','スナック','Bar','パン屋','焼き鳥','喫茶店','お好み焼き','焼肉','スイーツ','中華','ハンバーガー','蕎麦・うどん','寿司','和食','洋食','定食・食堂','韓国','テイクアウト専門店','ラーメン'];
+    const genre = genres.find(value => text.toLowerCase().includes(value.toLowerCase()));
+    if (!genre) return { text:'取得ジャンルを指定してください。例：「土浦市のカフェを取得開始して」' };
+    const id = createJobId(); queue.add({ id, payload:{ industry:'飲食店', prefecture:'茨城県', city, genre, sources:['googlemaps','tabelog'], maxItems:100 } });
+    return { text:`受け付けました。\nジョブID：${id}\n対象：茨城県 ${city}\nジャンル：${genre}\n取得元：Googleマップ、食べログ\n\n「ジョブの状態を見せて」で進捗を確認できます。`, badge:'受付済み' };
   }
   const client = new GasWebAppClient();
   if (/取得対象|管理シート|hd-list-sheet/.test(text)) {

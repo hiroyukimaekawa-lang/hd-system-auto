@@ -1,0 +1,195 @@
+{
+  "ok": true,
+  "dryRun": true,
+  "projectName": "茨城県_稲敷市・美浦村",
+  "workbookFile": "/Users/maekawahiroyuki/.codex/.chatgpt-projects/g-p-6a5dc4756e948191bddbf377ca61da11/HD-Automation/outputs/019f7e48-3b54-7983-8b02-5f8cc68fafd6/稲敷市・美浦村.xlsx",
+  "summary": [
+    {
+      "sheetName": "04_SALES_カフェ",
+      "counts": {
+        "美浦村": 7,
+        "稲敷市": 4
+      },
+      "before": 11,
+      "duplicates": 0,
+      "after": 11
+    },
+    {
+      "sheetName": "04_SALES_居酒屋",
+      "counts": {
+        "美浦村": 11,
+        "稲敷市": 8
+      },
+      "before": 19,
+      "duplicates": 0,
+      "after": 19
+    },
+    {
+      "sheetName": "04_SALES_スナック",
+      "counts": {
+        "美浦村": 4,
+        "稲敷市": 2
+      },
+      "before": 6,
+      "duplicates": 0,
+      "after": 6
+    },
+    {
+      "sheetName": "04_SALES_パン屋",
+      "counts": {
+        "美浦村": 3,
+        "稲敷市": 11
+      },
+      "before": 14,
+      "duplicates": 0,
+      "after": 14
+    },
+    {
+      "sheetName": "04_SALES_スイーツ",
+      "counts": {
+        "美浦村": 2,
+        "稲敷市": 4
+      },
+      "before": 6,
+      "duplicates": 0,
+      "after": 6
+    },
+    {
+      "sheetName": "04_SALES_和食",
+      "counts": {
+        "美浦村": 2,
+        "稲敷市": 14
+      },
+      "before": 16,
+      "duplicates": 0,
+      "after": 16
+    },
+    {
+      "sheetName": "04_SALES_定食・食堂",
+      "counts": {
+        "美浦村": 1,
+        "稲敷市": 7
+      },
+      "before": 8,
+      "duplicates": 0,
+      "after": 8
+    },
+    {
+      "sheetName": "04_SALES_韓国",
+      "counts": {
+        "美浦村": 2,
+        "稲敷市": 1
+      },
+      "before": 3,
+      "duplicates": 0,
+      "after": 3
+    },
+    {
+      "sheetName": "04_SALES_ラーメン",
+      "counts": {
+        "美浦村": 3,
+        "稲敷市": 15
+      },
+      "before": 18,
+      "duplicates": 0,
+      "after": 18
+    },
+    {
+      "sheetName": "04_SALES_Bar",
+      "counts": {
+        "美浦村": 0,
+        "稲敷市": 2
+      },
+      "before": 2,
+      "duplicates": 0,
+      "after": 2
+    },
+    {
+      "sheetName": "04_SALES_焼き鳥",
+      "counts": {
+        "美浦村": 0,
+        "稲敷市": 5
+      },
+      "before": 5,
+      "duplicates": 0,
+      "after": 5
+    },
+    {
+      "sheetName": "04_SALES_お好み焼き",
+      "counts": {
+        "美浦村": 0,
+        "稲敷市": 3
+      },
+      "before": 3,
+      "duplicates": 0,
+      "after": 3
+    },
+    {
+      "sheetName": "04_SALES_焼肉",
+      "counts": {
+        "美浦村": 0,
+        "稲敷市": 5
+      },
+      "before": 5,
+      "duplicates": 0,
+      "after": 5
+    },
+    {
+      "sheetName": "04_SALES_中華",
+      "counts": {
+        "美浦村": 0,
+        "稲敷市": 9
+      },
+      "before": 9,
+      "duplicates": 0,
+      "after": 9
+    },
+    {
+      "sheetName": "04_SALES_蕎麦・うどん",
+      "counts": {
+        "美浦村": 0,
+        "稲敷市": 4
+      },
+      "before": 4,
+      "duplicates": 0,
+      "after": 4
+    },
+    {
+      "sheetName": "04_SALES_寿司",
+      "counts": {
+        "美浦村": 0,
+        "稲敷市": 9
+      },
+      "before": 9,
+      "duplicates": 0,
+      "after": 9
+    },
+    {
+      "sheetName": "04_SALES_洋食",
+      "counts": {
+        "美浦村": 0,
+        "稲敷市": 8
+      },
+      "before": 8,
+      "duplicates": 0,
+      "after": 8
+    },
+    {
+      "sheetName": "04_SALES_テイクアウト専門店",
+      "counts": {
+        "美浦村": 0,
+        "稲敷市": 3
+      },
+      "before": 3,
+      "duplicates": 0,
+      "after": 3
+    }
+  ],
+  "areaTotals": {
+    "美浦村": 35,
+    "稲敷市": 114
+  },
+  "beforeTotal": 149,
+  "duplicateTotal": 0,
+  "afterTotal": 149
+}

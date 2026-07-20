@@ -11,13 +11,14 @@ import { waitForExports } from './gas-monitor.js';
 import { loadEnv } from './env.js';
 
 function args(argv) {
-  const out = { command: argv[0] || 'run', config: 'config/jobs.csv', output: 'output', state: 'state', headless: true, dryRun: false };
+  const out = { command: argv[0] || 'run', config: 'config/jobs.csv', output: 'output', state: 'state', headless: true, dryRun: false, jobId: '' };
   for (let i = 1; i < argv.length; i++) {
     if (argv[i] === '--config') out.config = argv[++i];
     else if (argv[i] === '--output') out.output = argv[++i];
     else if (argv[i] === '--state') out.state = argv[++i];
     else if (argv[i] === '--headed') out.headless = false;
     else if (argv[i] === '--dry-run') out.dryRun = true;
+    else if (argv[i] === '--job-id') out.jobId = argv[++i];
   }
   return out;
 }
@@ -30,7 +31,7 @@ const jobs = parseCsv(fs.readFileSync(opt.config, 'utf8')).map((j, i) => ({
   area: j.area, keyword: j.keyword, outputGenre: j.outputGenre || j.keyword,
   maxItems: Math.max(1, Number(j.maxItems) || 100), maxPages: Math.max(1, Number(j.maxPages) || 50),
   sources: (j.sources || 'googlemaps').split(',').map(value => value.trim()).filter(value => ['googlemaps', 'tabelog'].includes(value)),
-  tabelogUrl: j.tabelogUrl || '', id: `${String(i + 1).padStart(3, '0')}_${sanitize(j.area)}_${sanitize(j.outputGenre || j.keyword)}`
+  tabelogUrl: j.tabelogUrl || '', id: opt.jobId || `${String(i + 1).padStart(3, '0')}_${sanitize(j.area)}_${sanitize(j.outputGenre || j.keyword)}`
 })).filter(j => j.area && j.keyword);
 if (!jobs.length) { console.error('実行対象がありません。jobs.csvを確認してください。'); process.exit(1); }
 console.log(`実行対象: ${jobs.length}件${opt.dryRun ? '（確認のみ）' : ''}`);
@@ -38,6 +39,7 @@ jobs.forEach(j => console.log(`- ${j.area} × ${j.keyword} → ${j.outputGenre} 
 if (opt.dryRun) process.exit(0);
 
 const browser = await chromium.launch({ headless: opt.headless });
+let pausedJobs = false;
 try {
   for (const job of jobs) {
     const generatedFiles = {};
@@ -61,7 +63,7 @@ try {
       console.log(`[完了] ${csv} ${count}件`);
       if (paused) break;
     }
-    if (paused) { console.log('[Drive] 一時停止中のジョブは投入しません。'); continue; }
+    if (paused) { pausedJobs = true; console.log('[Drive] 一時停止中のジョブは投入しません。'); continue; }
     if (process.env.GOOGLE_DRIVE_RESTAURANT_ROOT_FOLDER_ID && process.env.GAS_WEB_APP_URL && process.env.GAS_WEB_APP_SECRET) {
       const client = new GasWebAppClient();
       try {
@@ -78,3 +80,4 @@ try {
     }
   }
 } finally { await browser.close(); }
+if (pausedJobs) process.exitCode = 2;
