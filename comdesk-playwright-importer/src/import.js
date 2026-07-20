@@ -222,13 +222,8 @@ async function assertProjectWorkgroupDoesNotExist(page, projectName, workgroup) 
 }
 
 async function gotoProjectPage(page) {
-  await page.goto(comdeskUrl(), { waitUntil: 'domcontentloaded', timeout: 90000 });
-  if (!/\/manage\/project/.test(page.url())) {
-    await page.waitForURL(/\/manage\/project/, { timeout: 90000 }).catch(() => {});
-  }
-  if (!/\/manage\/project/.test(page.url())) {
-    await page.goto('https://crestix-inc.comdesk.com/manage/project', { waitUntil: 'domcontentloaded', timeout: 90000 });
-  }
+  await page.goto('https://crestix-inc.comdesk.com/manage/project', { waitUntil: 'domcontentloaded', timeout: 90000 });
+  await waitForPageReady(page, 90_000);
   const safetyText = `${await page.title().catch(() => '')} ${await page.locator('body').innerText().catch(() => '')}`;
   if (/captcha|robot|アクセス制限|sign\s*in/i.test(safetyText) || (/ログイン/.test(safetyText) && !/プロジェクト登録/.test(safetyText))) {
     throw new Error('CAPTCHA、アクセス制限、またはログイン切れを検知したため停止しました');
@@ -340,6 +335,7 @@ function valueArgument(prefix) {
 async function finalizeImport(page, job, settings = {}) {
   const maxWaitMs = Number(settings.maxWaitMinutes || 15) * 60_000;
   const pollMs = Number(settings.pollSeconds || 20) * 1_000;
+  const listedProjectId = await resolveListedProjectId(page, job.projectName, job.workgroup);
   const precheck = await waitForNotification(page, {
     projectName: job.projectName,
     workgroup: job.workgroup,
@@ -349,13 +345,10 @@ async function finalizeImport(page, job, settings = {}) {
   });
   const notificationText = await precheck.innerText();
   const projectId = notificationText.match(/プロジェクト:\s*\[?(\d+)\]?/)?.[1] || null;
+  if (!projectId || projectId !== listedProjectId) throw new Error(`通知とプロジェクト一覧のIDが一致しません: 通知=${projectId || '不明'} 一覧=${listedProjectId}`);
   await precheck.click();
-  await page.waitForURL(/\/manage\/project\/\d+\/check_import/, { timeout: 90_000 });
   await waitForPageReady(page, 90_000);
-  const openedProjectId = page.url().match(/\/manage\/project\/(\d+)\/check_import/)?.[1];
-  if (!projectId || openedProjectId !== projectId) throw new Error(`通知のプロジェクトIDが一致しません: 通知=${projectId || '不明'} 画面=${openedProjectId || '不明'}`);
-
-  await page.getByText(/新規件数\s*[:：]?\s*\d+件/).first().waitFor({ state: 'visible', timeout: 90_000 });
+  await waitForImportReview(page, job, projectId);
   const bodyText = await page.locator('body').innerText();
   const newRows = Number(bodyText.match(/新規件数:\s*(\d+)件/)?.[1] || 0);
   const duplicates = Number(bodyText.match(/重複\((\d+)件\)/)?.[1] || 0);
@@ -375,6 +368,39 @@ async function finalizeImport(page, job, settings = {}) {
     pollMs
   });
   return { projectId, newRows, duplicates, blocked, importCompletedAt: new Date().toISOString(), completionNotification: (await completion.innerText()).trim() };
+}
+
+async function waitForImportReview(page, job, projectId) {
+  const newCount = page.getByText(/新規件数\s*[:：]?\s*\d+件/).first();
+  const submit = page.locator('input[type="submit"]:visible')
+    .or(page.locator('button:visible').filter({ hasText: /送信/ })).first();
+  await newCount.waitFor({ state: 'visible', timeout: 90_000 }).catch(() => {
+    throw new Error(`通知を開きましたが重複確認画面を確認できません: ${job.projectName} / ${job.workgroup} / ID=${projectId}`);
+  });
+  await submit.waitFor({ state: 'visible', timeout: 30_000 });
+  const bodyText = await page.locator('body').innerText();
+  if (!bodyText.includes(job.projectName) || !bodyText.includes(job.workgroup)) {
+    throw new Error(`重複確認画面の対象が一致しません: ${job.projectName} / ${job.workgroup} / ID=${projectId}`);
+  }
+}
+
+async function resolveListedProjectId(page, projectName, workgroup) {
+  await gotoProjectPage(page);
+  const exactWorkgroup = new RegExp(`^\\s*${escapeRegExp(workgroup)}\\s*$`);
+  const label = page.locator('label:visible').filter({ hasText: exactWorkgroup }).first();
+  await label.waitFor({ state: 'visible', timeout: 30_000 });
+  const checkboxId = await label.getAttribute('for');
+  if (!checkboxId) throw new Error(`ワークグループ選択欄が見つかりません: ${workgroup}`);
+  if (!/^[A-Za-z0-9_-]+$/.test(checkboxId)) throw new Error(`安全でないワークグループ選択欄IDを検知しました: ${checkboxId}`);
+  const checkbox = page.locator(`[id="${checkboxId}"]`);
+  await checkbox.check(); await page.waitForTimeout(2_000); await waitForPageReady(page, 30_000);
+  const matches = page.getByText(projectName, { exact: true });
+  if (await matches.count() !== 1) throw new Error(`プロジェクト一覧で対象を一意に特定できません: ${projectName} / ${workgroup}`);
+  const row = matches.first().locator('xpath=ancestor::tr[1]');
+  const projectId = await row.locator('input[name="project_id_item[]"]').getAttribute('value');
+  if (!projectId) throw new Error(`プロジェクト一覧IDを取得できません: ${projectName} / ${workgroup}`);
+  await checkbox.uncheck().catch(() => {});
+  return projectId;
 }
 
 async function applyDuplicateDecisions(page, { newRows, duplicates }) {
@@ -407,15 +433,16 @@ async function waitForNotification(page, { projectName, workgroup, projectId, ph
   while (Date.now() < deadline) {
     await gotoProjectPage(page);
     await openNotifications(page);
-    const candidates = page.getByText(phrase, { exact: false });
+    const candidates = page.locator('li.item, li[class*="notification-"]');
     const count = await candidates.count();
     for (let index = 0; index < count; index += 1) {
       const candidate = candidates.nth(index);
-      const text = await notificationContainerText(candidate);
+      const text = await notificationItemText(candidate);
+      if (!text.includes(phrase)) continue;
       if (!text.includes(projectName) || !text.includes(`ワークグループ:${workgroup}`)) continue;
       if (projectId && !text.includes(`[${projectId}]`)) continue;
       await waitForPageReady(page, 30_000);
-      return await notificationClickTarget(candidate);
+      return candidate;
     }
     console.log(`通知待機中: ${projectName} / ${workgroup}（${phrase}）`);
     await page.waitForTimeout(pollMs);
@@ -453,18 +480,9 @@ async function waitForPageReady(page, timeout) {
   });
 }
 
-async function notificationContainerText(candidate) {
+async function notificationItemText(candidate) {
   return candidate.evaluate((element) => {
-    let node = element;
-    for (let depth = 0; node && depth < 6; depth += 1, node = node.parentElement) {
-      const text = (node.innerText || '').replace(/\s+/g, ' ').trim();
-      if (text.includes('プロジェクト:') && text.includes('ワークグループ:')) return text;
-    }
-    return (element.innerText || '').replace(/\s+/g, ' ').trim();
+    const item = element.closest('li, [role="listitem"], .q-item, [class*="notification-item"]') || element;
+    return (item.innerText || element.innerText || '').replace(/\s+/g, ' ').trim();
   }).catch(() => '');
-}
-
-async function notificationClickTarget(candidate) {
-  const actionable = candidate.locator('xpath=ancestor-or-self::a[1] | ancestor-or-self::button[1]').first();
-  return await actionable.count() ? actionable : candidate;
 }
