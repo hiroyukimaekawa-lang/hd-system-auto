@@ -1,5 +1,19 @@
 # HD Scraper Automation
 
+## Googleスプレッドシートからコムデスクへ完全自動投入
+
+共有されたGoogleスプレッドシートを取得し、31列・電話番号・重複を検証してから、プロジェクト登録、重複確認通知のクリック、件数照合、送信、完了通知の確認まで連続実行します。
+
+```bash
+# 書き込みなしの確認
+npm run comdesk:auto:dry -- --spreadsheet-url="GoogleスプレッドシートURL"
+
+# 本番投入（.envのCOMDESK_EXECUTE=trueも必要）
+npm run comdesk:auto -- --spreadsheet-url="GoogleスプレッドシートURL" --execute
+```
+
+プロジェクト名は住所から `都道府県_市区町村` として決定します。指定する場合は `--project-name=茨城県_稲敷市・美浦村` を追加します。ジョブ状態、結果、ログ、停止時スクリーンショットは `data/comdesk-jobs/<jobId>/` に保存され、後続の取得済み地域地図にも利用できます。
+
 ## 営業リストを1回の操作で作る（統合版）
 
 ### 取得済みの稲敷市・美浦村を統合する
@@ -37,6 +51,10 @@ npm run hd:dry -- --prefecture=茨城県 --area=対象市区町村 --category=�
 ```bash
 npm run hd:run -- --prefecture=茨城県 --area=対象市区町村 --category=飲食店
 ```
+
+本実行前に `.env` へ `SYSTEM_PROFILE=AFFILIATE`、GAS WebアプリURL、16文字以上の共有シークレットを設定してください。コムデスクへの書き込みは、さらに `COMDESK_EXECUTE=true` がある場合だけ有効です。未設定時は安全に停止し、`hd:dry` では不足設定を計画結果へ表示します。
+
+県全体取得の住所分割は `config/regions.json` が地域マスタです。市区町村・統合エリアをここへ追加し、どこにも一意に一致しないデータは「エリア不明」として確認対象へ送られます。
 
 プロジェクト名は `都道府県_市区町村`、ワークグループは判定したジャンルになります。通知は20秒ごと、最大15分確認します。成功済みジャンルは再実行しても登録しません。
 

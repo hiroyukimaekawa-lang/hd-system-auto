@@ -4,88 +4,64 @@
     "sheetName": "04_SALES_カフェ",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "カフェ",
-    "status": "existing",
-    "rows": 11,
-    "importStatus": "failed",
-    "importError": "page.waitForTimeout: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_居酒屋",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "居酒屋",
-    "status": "existing",
-    "rows": 19,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_スナック",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "スナック",
-    "status": "existing",
-    "rows": 6,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_パン屋",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "パン屋",
-    "status": "existing",
-    "rows": 14,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_スイーツ",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "スイーツ",
-    "status": "existing",
-    "rows": 6,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_和食",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "和食",
-    "status": "existing",
-    "rows": 16,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_定食・食堂",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "定食・食堂",
-    "status": "existing",
-    "rows": 8,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_韓国",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "韓国",
-    "status": "existing",
-    "rows": 3,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
@@ -95,106 +71,79 @@
     "status": "existing",
     "rows": 18,
     "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "importError": "通知のプロジェクトIDが一致しません: 通知=130819 画面=258232",
+    "importScreenshot": "/Users/maekawahiroyuki/hd-system-auto/outputs/019f7e48-3b54-7983-8b02-5f8cc68fafd6/screenshots/1784535247250_finalize_failed_茨城県_稲敷市_美浦村_ラ_メン.png"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_Bar",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "Bar",
-    "status": "existing",
-    "rows": 2,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_焼き鳥",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "焼き鳥",
-    "status": "existing",
-    "rows": 5,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_お好み焼き",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "お好み焼き",
-    "status": "existing",
-    "rows": 3,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_焼肉",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "焼肉",
-    "status": "existing",
-    "rows": 5,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_中華",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "中華",
-    "status": "existing",
-    "rows": 9,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_蕎麦・うどん",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "蕎麦・うどん",
-    "status": "existing",
-    "rows": 4,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_寿司",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "寿司",
-    "status": "existing",
-    "rows": 9,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_洋食",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "洋食",
-    "status": "existing",
-    "rows": 8,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   },
   {
     "inputName": "稲敷市・美浦村.xlsx",
     "sheetName": "04_SALES_テイクアウト専門店",
     "projectName": "茨城県_稲敷市・美浦村",
     "workgroup": "テイクアウト専門店",
-    "status": "existing",
-    "rows": 3,
-    "importStatus": "failed",
-    "importError": "page.goto: Target page, context or browser has been closed",
-    "importScreenshot": null
+    "status": "skipped",
+    "reason": "only-workgroups"
   }
 ]

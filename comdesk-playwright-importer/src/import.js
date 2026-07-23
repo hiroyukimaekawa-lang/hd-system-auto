@@ -3,9 +3,15 @@ import path from 'node:path';
 import { parse } from 'csv-parse/sync';
 import XLSX from 'xlsx';
 import { comdeskUrl, ensureDirs, launch, loadConfig, paths, screenshot } from './common.js';
+import { isExpectedImportStartedAlert, isExpectedSubmitConfirmation } from './confirmation.js';
+import { isReviewCountConsistent, parseReviewCounts } from './review.js';
+import { assertAssignUsersBeforeSubmit, setAssignUsers } from './assign-users.js';
+
+const COMDESK_HEADERS = ['UUID','種別','名前','カナ','郵便番号','都道府県','住所１','住所２','住所カナ','Tel1','Tel2','Tel3','Tel4','FAX','URL','備考','旧社名','リードソース','旧進捗','履歴','オーナー名','HPある？','BP検索','アポ済商材','最新履歴','営業曜日','休業曜日','午前始','午前終','午後始','午後終'];
 
 const dryRun = process.argv.includes('--dry-run');
 const finalizeOnly = process.argv.includes('--finalize-only');
+const completionOnly = process.argv.includes('--completion-only');
 const skipWorkgroups = parseListArgument('--skip-workgroups=');
 const onlyWorkgroups = parseListArgument('--only-workgroups=');
 const inputArgument = valueArgument('--input=');
@@ -64,10 +70,10 @@ for (const source of inputFiles) {
         results.push({ inputName, sheetName: job.sheetName, projectName: job.projectName, workgroup: job.workgroup, status: 'dry-run', rows: job.rows });
         continue;
       }
-      if (finalizeOnly) {
+      if (finalizeOnly || completionOnly) {
         const result = { inputName, sheetName: job.sheetName, projectName: job.projectName, workgroup: job.workgroup, status: 'existing', rows: job.rows };
         results.push(result); pendingFinalizations.push({ job, result });
-        console.log(`承認処理のみ再開: ${job.projectName} / ${job.workgroup}`);
+        console.log(`${completionOnly ? '完了通知確認のみ再開' : '承認処理のみ再開'}: ${job.projectName} / ${job.workgroup}`);
         continue;
       }
 
@@ -79,18 +85,22 @@ for (const source of inputFiles) {
 
       const remarks = page.locator('[name="remarks"]');
       if (config.remarks && await remarks.count()) await remarks.fill(config.remarks);
-      const assignedUsers = await setAssignUsers(page, config.assignUsers);
       await setDuplicateCheck(page, config.duplicateCheck);
+      // Duplicate-check controls can re-render parts of the modal. Select users
+      // last so Comdesk receives the complete multi-select state on submit.
+      const assignedUsers = await setAssignUsers(page, config.assignUsers);
+      await assertAssignUsersBeforeSubmit(page, assignedUsers, config.assignUsers);
       console.log(`重複チェック: ${config.duplicateCheck?.type || '電話番号'} / ${config.duplicateCheck?.scope || 'テナント全体'}`);
 
       const projectInput = page.locator('input[name="project_name"]');
       await page.locator('button').filter({ hasText: /^プロジェクト登録$/ }).last().click();
       await projectInput.waitFor({ state: 'hidden', timeout });
+      await verifySavedAssignUsers(page, job.projectName, job.workgroup, assignedUsers);
 
       const result = { inputName, sheetName: job.sheetName, projectName: job.projectName, workgroup: job.workgroup, assignedUsers, status: 'success', rows: job.rows, completedAt: new Date().toISOString() };
       results.push(result);
       if (config.finalizeImport?.enabled !== false) pendingFinalizations.push({ job, result });
-      console.log(`成功: ${job.projectName}`);
+      console.log(`プロジェクト登録成功: ${job.projectName} / ${job.workgroup} (${job.rows}件)`);
       await page.waitForTimeout(800);
     } catch (error) {
       inputSucceeded = false;
@@ -101,7 +111,7 @@ for (const source of inputFiles) {
     }
   }
 
-  if (!dryRun && !finalizeOnly && !inputArgument && fs.existsSync(source)) {
+  if (!dryRun && !finalizeOnly && !completionOnly && !inputArgument && fs.existsSync(source)) {
     fs.renameSync(source, uniqueTarget(inputSucceeded ? paths.success : paths.failed, inputName));
   }
 }
@@ -110,7 +120,9 @@ if (!dryRun && pendingFinalizations.length) {
   console.log(`\nインポート実行待ち: ${pendingFinalizations.length}件`);
   for (const item of pendingFinalizations) {
     try {
-      const finalized = await finalizeImport(page, item.job, config.finalizeImport);
+      const finalized = completionOnly
+        ? await confirmCompletionOnly(page, item.job, config.finalizeImport)
+        : await finalizeImport(page, item.job, config.finalizeImport);
       Object.assign(item.result, finalized, { importStatus: 'completed' });
       console.log(`インポート完了: ${item.job.projectName} / ${item.job.workgroup}`);
     } catch (error) {
@@ -119,6 +131,7 @@ if (!dryRun && pendingFinalizations.length) {
       item.result.importScreenshot = await screenshot(page, `finalize_failed_${safeName(item.job.projectName)}_${safeName(item.job.workgroup)}`).catch(() => null);
       console.error(`インポート実行失敗: ${item.job.projectName} / ${item.job.workgroup}: ${error.message}`);
       await resetPage(page);
+      break;
     }
   }
 }
@@ -133,6 +146,7 @@ if (results.some((result) => result.status === 'failed' || result.importStatus =
 function buildJobs(source, inputName) {
   if (/\.csv$/i.test(inputName)) {
     const csv = fs.readFileSync(source, 'utf8').replace(/^\uFEFF/, '');
+    validateCsv(csv);
     const rows = countRows(csv);
     const originalName = path.basename(inputName, path.extname(inputName));
     const workgroup = detectWorkgroup(originalName, config.workgroupAliases);
@@ -194,6 +208,21 @@ function countRows(csv) {
   return rows.length;
 }
 
+function validateCsv(csv) {
+  const parsed = parse(csv.replace(/^\uFEFF/, ''), { skip_empty_lines: true, relax_column_count: false });
+  const header = parsed[0] || [];
+  if (header.length !== COMDESK_HEADERS.length || header.some((value, index) => value !== COMDESK_HEADERS[index])) {
+    throw new Error(`CSVヘッダーがコムデスク31列仕様と一致しません（実際${header.length}列）`);
+  }
+  const telIndex = COMDESK_HEADERS.indexOf('Tel1'); const seen = new Set();
+  for (const [index, row] of parsed.slice(1).entries()) {
+    const phone = String(row[telIndex] || '');
+    if (!/^0\d{9,10}$/.test(phone)) throw new Error(`${index + 2}行目の電話番号形式が不正です`);
+    if (seen.has(phone)) throw new Error(`${index + 2}行目の電話番号がCSV内で重複しています`);
+    seen.add(phone);
+  }
+}
+
 async function openProjectModal(page) {
   const input = page.locator('input[name="project_name"]');
   if (await input.isVisible().catch(() => false)) return;
@@ -249,55 +278,25 @@ async function setDuplicateCheck(page, settings = {}) {
   await page.locator(`input[name="${scope}"]`).check();
 }
 
-async function setAssignUsers(page, settings = {}) {
-  const accessible = page.locator('select[name="staff_id_accessible[]"]');
-  const unaccessible = page.locator('select[name="staff_id_unaccessible[]"]');
-  if (!await accessible.count() || !await unaccessible.count()) {
-    throw new Error('アサインユーザーの選択欄が見つかりません');
-  }
-
-  const mode = settings.mode || 'listed';
-  const requestedUsers = Array.isArray(settings.users) ? settings.users.map(String) : [];
-  if (!['all', 'listed'].includes(mode)) {
-    throw new Error(`アサインユーザーのmodeが不正です: ${mode}`);
-  }
-  if (mode === 'listed' && !requestedUsers.length) {
-    throw new Error('assignUsers.usersが空です');
-  }
-
-  const result = await page.evaluate(({ mode, requestedUsers }) => {
-    const accessibleSelect = document.querySelector('select[name="staff_id_accessible[]"]');
-    const unaccessibleSelect = document.querySelector('select[name="staff_id_unaccessible[]"]');
-    if (!accessibleSelect || !unaccessibleSelect) throw new Error('アサインユーザーの選択欄が見つかりません');
-
-    const normalize = (value) => String(value || '').replace(/\s+/g, '').trim();
-    const requested = new Set(requestedUsers.map(normalize));
-    const allOptions = [...accessibleSelect.options, ...unaccessibleSelect.options];
-    const availableNames = allOptions.map((option) => option.text.trim()).filter(Boolean);
-    const missing = mode === 'listed'
-      ? requestedUsers.filter((name) => !availableNames.some((available) => normalize(available) === normalize(name)))
-      : [];
-    if (missing.length) throw new Error(`指定したアサインユーザーが画面にいません: ${missing.join('、')}`);
-
-    for (const option of [...unaccessibleSelect.options]) {
-      if (mode === 'all' || requested.has(normalize(option.text))) accessibleSelect.appendChild(option);
-    }
-    if (mode === 'listed') {
-      for (const option of [...accessibleSelect.options]) {
-        if (!requested.has(normalize(option.text))) unaccessibleSelect.appendChild(option);
-      }
-    }
-
-    accessibleSelect.dispatchEvent(new Event('input', { bubbles: true }));
-    accessibleSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    unaccessibleSelect.dispatchEvent(new Event('input', { bubbles: true }));
-    unaccessibleSelect.dispatchEvent(new Event('change', { bubbles: true }));
-    return [...accessibleSelect.options].map((option) => option.text.trim()).filter(Boolean);
-  }, { mode, requestedUsers });
-
-  if (!result.length) throw new Error('アサインユーザーが0人になっています');
-  console.log(`アサインユーザー: ${result.join('、')}`);
-  return result;
+async function verifySavedAssignUsers(page, projectName, workgroup, expectedUsers) {
+  await gotoProjectPage(page);
+  const label = page.locator('label:visible').filter({ hasText: new RegExp(`^\\s*${escapeRegExp(workgroup)}\\s*$`) }).first();
+  await label.waitFor({ state: 'visible', timeout: 30_000 });
+  const checkboxId = await label.getAttribute('for');
+  if (!checkboxId || !/^[A-Za-z0-9_-]+$/.test(checkboxId)) throw new Error(`ワークグループ選択欄を安全に特定できません: ${workgroup}`);
+  const checkbox = page.locator(`[id="${checkboxId}"]`);
+  await checkbox.check();
+  await page.waitForTimeout(2_000);
+  await waitForPageReady(page, 30_000);
+  const matches = page.getByText(projectName, { exact: true });
+  if (await matches.count() !== 1) throw new Error(`登録後のプロジェクトを一意に確認できません: ${projectName} / ${workgroup}`);
+  const rowText = await matches.first().locator('xpath=ancestor::tr[1]').innerText();
+  const normalize = (value) => String(value || '').replace(/\s+/g, '');
+  const normalizedRow = normalize(rowText);
+  const missing = expectedUsers.filter((name) => !normalizedRow.includes(normalize(name)));
+  await checkbox.uncheck().catch(() => {});
+  if (missing.length) throw new Error(`登録後にアクセス可能ユーザーが保存されていません: ${missing.join('、')}`);
+  console.log(`登録後ユーザー確認: ${expectedUsers.length}人`);
 }
 
 function detectWorkgroup(name, aliases) {
@@ -349,15 +348,38 @@ async function finalizeImport(page, job, settings = {}) {
   await precheck.click();
   await waitForPageReady(page, 90_000);
   await waitForImportReview(page, job, projectId);
-  const bodyText = await page.locator('body').innerText();
-  const newRows = Number(bodyText.match(/新規件数:\s*(\d+)件/)?.[1] || 0);
-  const duplicates = Number(bodyText.match(/重複\((\d+)件\)/)?.[1] || 0);
-  const blocked = Number(bodyText.match(/禁止番号\((\d+)件\)/)?.[1] || 0);
-  await applyDuplicateDecisions(page, { newRows, duplicates });
+  const { newRows, duplicates, blocked } = await waitForReviewCounts(page, job.rows);
+  await applyDuplicateDecisions(page, { newRows, duplicates, blocked });
   const submit = page.locator('input[type="submit"]:visible').first();
   await submit.waitFor({ state: 'visible', timeout: 30_000 });
-  await submit.click();
+  const confirmation = { accepted: false, message: '', startedAlertAccepted: false, startedAlertMessage: '' };
+  await Promise.all([
+    page.waitForEvent('dialog', { timeout: 30_000 }).then(async (dialog) => {
+      confirmation.message = dialog.message().replace(/\s+/g, ' ').trim();
+      if (!isExpectedSubmitConfirmation(dialog.type(), confirmation.message)) {
+        await dialog.dismiss();
+        throw new Error(`想定外の確認ダイアログのため送信を停止しました: ${confirmation.message || dialog.type()}`);
+      }
+      const startedAlert = page.waitForEvent('dialog', { timeout: 30_000 });
+      await dialog.accept(); confirmation.accepted = true;
+      const alert = await startedAlert;
+      confirmation.startedAlertMessage = alert.message().replace(/\s+/g, ' ').trim();
+      if (!isExpectedImportStartedAlert(alert.type(), confirmation.startedAlertMessage)) {
+        await alert.dismiss();
+        throw new Error(`想定外のインポート開始ダイアログのため停止しました: ${confirmation.startedAlertMessage || alert.type()}`);
+      }
+      await alert.accept(); confirmation.startedAlertAccepted = true;
+    }),
+    submit.click()
+  ]);
+  if (!confirmation.accepted) throw new Error('送信確認ダイアログのOKを確認できなかったため停止しました');
+  if (!confirmation.startedAlertAccepted) throw new Error('インポート開始ダイアログのOKを確認できなかったため停止しました');
   await page.waitForURL(/\/manage\/project(?:$|\?)/, { timeout: 90_000 }).catch(() => {});
+  const initialProcessingWaitMs = Number(settings.initialProcessingWaitSeconds ?? 90) * 1_000;
+  if (initialProcessingWaitMs > 0) {
+    console.log(`インポート処理開始後の待機: ${Math.round(initialProcessingWaitMs / 1_000)}秒`);
+    await page.waitForTimeout(initialProcessingWaitMs);
+  }
 
   const completion = await waitForNotification(page, {
     projectName: job.projectName,
@@ -367,7 +389,39 @@ async function finalizeImport(page, job, settings = {}) {
     maxWaitMs,
     pollMs
   });
-  return { projectId, newRows, duplicates, blocked, importCompletedAt: new Date().toISOString(), completionNotification: (await completion.innerText()).trim() };
+  return { projectId, newRows, duplicates, blocked, confirmationMessage: confirmation.message, startedAlertMessage: confirmation.startedAlertMessage, importCompletedAt: new Date().toISOString(), completionNotification: (await completion.innerText()).trim() };
+}
+
+async function confirmCompletionOnly(page, job, settings = {}) {
+  const maxWaitMs = Number(settings.maxWaitMinutes || 15) * 60_000;
+  const pollMs = Number(settings.pollSeconds || 20) * 1_000;
+  const projectId = await resolveListedProjectId(page, job.projectName, job.workgroup);
+  const completion = await waitForNotification(page, {
+    projectName: job.projectName, workgroup: job.workgroup, projectId,
+    phrase: '顧客インポート処理を完了しました', maxWaitMs, pollMs
+  });
+  return { projectId, importCompletedAt: new Date().toISOString(), completionNotification: (await completion.innerText()).trim() };
+}
+
+async function waitForReviewCounts(page, expectedRows) {
+  const deadline = Date.now() + 90_000; let last = { newRows:0, duplicates:0, blocked:0 };
+  while (Date.now() < deadline) {
+    await waitForPageReady(page, 30_000).catch(() => {});
+    const bodyText = await page.locator('body').innerText().catch(() => '');
+    last = parseReviewCounts(bodyText);
+    const total = last.newRows + last.duplicates + last.blocked;
+    if (isReviewCountConsistent(expectedRows, last)) return last;
+    if (total > 0) {
+      await page.waitForTimeout(2_000);
+      const confirmed = parseReviewCounts(await page.locator('body').innerText().catch(() => ''));
+      if (!isReviewCountConsistent(expectedRows, confirmed)) {
+        throw new Error(`件数不一致のため送信を停止しました: 投入=${expectedRows} 新規=${confirmed.newRows} 重複=${confirmed.duplicates} 禁止番号=${confirmed.blocked}`);
+      }
+      return confirmed;
+    }
+    await page.waitForTimeout(2_000);
+  }
+  throw new Error(`重複確認画面の件数を90秒以内に取得できません: 投入=${expectedRows} 新規=${last.newRows} 重複=${last.duplicates} 禁止番号=${last.blocked}`);
 }
 
 async function waitForImportReview(page, job, projectId) {
@@ -379,7 +433,9 @@ async function waitForImportReview(page, job, projectId) {
   });
   await submit.waitFor({ state: 'visible', timeout: 30_000 });
   const bodyText = await page.locator('body').innerText();
-  if (!bodyText.includes(job.projectName) || !bodyText.includes(job.workgroup)) {
+  const bodyIdentifiesTarget = bodyText.includes(job.projectName) && bodyText.includes(job.workgroup);
+  const isImportReviewUrl = /\/manage\/project\/\d+\/check_import(?:$|\?)/.test(page.url());
+  if (!bodyIdentifiesTarget && !isImportReviewUrl) {
     throw new Error(`重複確認画面の対象が一致しません: ${job.projectName} / ${job.workgroup} / ID=${projectId}`);
   }
 }
@@ -403,8 +459,8 @@ async function resolveListedProjectId(page, projectName, workgroup) {
   return projectId;
 }
 
-async function applyDuplicateDecisions(page, { newRows, duplicates }) {
-  const outcome = await page.evaluate(({ newRows, duplicates }) => {
+async function applyDuplicateDecisions(page, { newRows, duplicates, blocked }) {
+  const outcome = await page.evaluate(({ newRows, duplicates, blocked }) => {
     const compact = (value) => String(value || '').replace(/\s+/g, '');
     const choose = (container, label) => {
       const select = container.querySelector('select');
@@ -417,32 +473,45 @@ async function applyDuplicateDecisions(page, { newRows, duplicates }) {
       const input = target?.querySelector('input') || (target?.htmlFor && document.getElementById(target.htmlFor));
       if (!input) return false; input.click(); return true;
     };
-    let newApplied = newRows === 0; let duplicateApplied = duplicates === 0;
+    let newApplied = true; let duplicateApplied = duplicates === 0; let blockedApplied = blocked === 0;
     for (const container of document.querySelectorAll('tr, fieldset, .row, [class*="item"]')) {
       const text = compact(container.textContent);
-      if (!newApplied && /新規/.test(text) && choose(container, '新規追加')) newApplied = true;
       if (!duplicateApplied && /重複/.test(text) && choose(container, '除外')) duplicateApplied = true;
+      if (!blockedApplied && /禁止番号/.test(text) && choose(container, '除外')) blockedApplied = true;
     }
-    return { newApplied, duplicateApplied };
-  }, { newRows, duplicates });
-  if (!outcome.newApplied || !outcome.duplicateApplied) throw new Error('新規=追加／重複=除外を画面上で安全に確認できないため送信を停止しました');
+    const visibleDecisionControls = [...document.querySelectorAll('select, input[type="radio"], input[type="checkbox"]')].filter((element) => {
+      const style = getComputedStyle(element); const box = element.getBoundingClientRect();
+      return !element.disabled && style.display !== 'none' && style.visibility !== 'hidden' && box.width > 0 && box.height > 0;
+    });
+    const pageText = compact(document.body.innerText);
+    const implicitMode = visibleDecisionControls.length === 0;
+    if (implicitMode && duplicates > 0 && pageText.includes(`重複(${duplicates}件)`)) duplicateApplied = true;
+    if (implicitMode && blocked > 0 && pageText.includes(`禁止番号(${blocked}件)`)) blockedApplied = true;
+    return { newApplied, duplicateApplied, blockedApplied, implicitMode, visibleDecisionControls: visibleDecisionControls.length };
+  }, { newRows, duplicates, blocked });
+  if (!outcome.newApplied || !outcome.duplicateApplied || !outcome.blockedApplied) throw new Error('新規=追加／重複・禁止番号=除外を画面上で安全に確認できないため送信を停止しました');
+  console.log(outcome.implicitMode
+    ? `選択欄なしの固定処理を確認: 新規${newRows}件を追加 / 重複${duplicates}件・禁止番号${blocked}件を除外`
+    : `選択状態を確認: 新規${newRows}件を追加 / 重複${duplicates}件・禁止番号${blocked}件を除外`);
 }
 
 async function waitForNotification(page, { projectName, workgroup, projectId, phrase, maxWaitMs, pollMs }) {
   const deadline = Date.now() + maxWaitMs;
   while (Date.now() < deadline) {
     await gotoProjectPage(page);
-    await openNotifications(page);
-    const candidates = page.locator('li.item, li[class*="notification-"]');
+    await openNotifications(page).catch(() => {});
+    const candidates = page.getByText(phrase, { exact: false });
     const count = await candidates.count();
     for (let index = 0; index < count; index += 1) {
       const candidate = candidates.nth(index);
+      if (!await candidate.isVisible().catch(() => false)) continue;
       const text = await notificationItemText(candidate);
       if (!text.includes(phrase)) continue;
       if (!text.includes(projectName) || !text.includes(`ワークグループ:${workgroup}`)) continue;
       if (projectId && !text.includes(`[${projectId}]`)) continue;
       await waitForPageReady(page, 30_000);
-      return candidate;
+      const row = candidate.locator('xpath=ancestor-or-self::*[self::li or @role="listitem" or contains(concat(" ", normalize-space(@class), " "), " q-item ")][1]');
+      return await row.count() ? row.first() : candidate;
     }
     console.log(`通知待機中: ${projectName} / ${workgroup}（${phrase}）`);
     await page.waitForTimeout(pollMs);

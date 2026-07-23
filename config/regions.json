@@ -1,0 +1,7 @@
+[
+  { "prefecture": "茨城県", "outputArea": "水戸市", "municipalities": ["水戸市"] },
+  { "prefecture": "茨城県", "outputArea": "稲敷市・美浦村", "municipalities": ["稲敷市", "美浦村"] },
+  { "prefecture": "神奈川県", "outputArea": "横浜市", "municipalities": ["横浜市"] },
+  { "prefecture": "福島県", "outputArea": "福島市", "municipalities": ["福島市"] },
+  { "prefecture": "長野県", "outputArea": "長野市", "municipalities": ["長野市"] }
+]

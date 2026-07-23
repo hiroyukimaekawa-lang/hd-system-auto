@@ -4,7 +4,7 @@
   "projectNameTemplate": "茨城県_{area}",
   "remarks": "",
   "assignUsers": {
-    "mode": "listed",
+    "mode": "all",
     "users": ["開発管理用", "高原", "岩井", "松岡", "坂本", "橋本", "肥田野", "前川", "前田"]
   },
   "duplicateCheck": {
@@ -15,7 +15,8 @@
   "finalizeImport": {
     "enabled": true,
     "maxWaitMinutes": 15,
-    "pollSeconds": 20
+    "pollSeconds": 20,
+    "initialProcessingWaitSeconds": 90
   },
   "workgroupAliases": {
     "MEO": ["MEO"],
