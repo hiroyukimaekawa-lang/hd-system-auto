@@ -1,4 +1,0 @@
-interface:
-  display_name: "HDスクレイピング・Comdesk自動化"
-  short_description: "指示文から取得・整形・Comdesk投入完了まで自動実行"
-  default_prompt: "Use $hd-scrape-to-comdesk to scrape a specified area and complete its Comdesk imports safely."
