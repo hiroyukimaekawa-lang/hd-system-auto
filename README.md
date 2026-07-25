@@ -1,5 +1,70 @@
 # HD Scraper Automation
 
+## 起動方法（Windows / macOS 共通）
+
+Windows・macOS のどちらでも同じ操作で動きます（Node.js 20以上が必要）。
+以下のランチャーを使うと、セットアップ・確認実行・本番実行・アシスタント起動を
+メニューから選ぶだけで実行できます。
+
+| OS | 使うファイル |
+| --- | --- |
+| Windows | `run.bat`（ダブルクリック）または PowerShell で `.\run.ps1` |
+| macOS / Linux | `./run.sh` |
+| 共通（従来どおり手で叩く場合） | `npm run ...`（このREADMEの各節） |
+
+```
+ 1) 初回セットアップ（最初の1回だけ）      6) スプレッドシートから投入（本番）
+ 2) コムデスクにログイン                   7) HD AIアシスタントを開く
+ 3) 確認実行（書き込みなし / dry-run）      8) Slack常駐アプリを起動
+ 4) 本番実行                               9) 設定・構文チェック
+ 5) スプレッドシートから投入（確認）        0) 終了
+```
+
+引数を付ければメニューを出さずに実行できます。
+
+```powershell
+.\run.ps1 -Task dry -Prefecture 茨城県 -Area 土浦市 -Category 飲食店
+.\run.ps1 -Task comdesk -SpreadsheetUrl "https://docs.google.com/spreadsheets/d/xxxx/edit"
+```
+
+```bash
+./run.sh --task dry --prefecture 茨城県 --area 土浦市 --category 飲食店
+./run.sh --task comdesk --spreadsheet-url "https://docs.google.com/spreadsheets/d/xxxx/edit"
+```
+
+### Windowsではじめて使うとき
+
+1. Node.js を入れる（PowerShellで実行）。終わったらPowerShellを開き直す。
+
+   ```powershell
+   winget install OpenJS.NodeJS.LTS
+   ```
+
+2. このフォルダの `run.bat` をダブルクリックし、`1) 初回セットアップ` を選ぶ。
+3. 続けて `2) コムデスクにログイン` を選び、開いたChromeでログインする。
+4. 以降は `3) 確認実行` → 問題なければ `4) 本番実行`。
+
+`run.ps1` を直接実行して「スクリプトの実行がシステムで無効になっています」と
+出た場合は、`run.bat` から起動するか、次のいずれかで回避します。
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\run.ps1
+```
+
+```powershell
+Set-ExecutionPolicy -Scope CurrentUser RemoteSigned
+```
+
+### Windowsでのトラブル
+
+| 症状 | 対処 |
+| --- | --- |
+| `node : 用語 node は認識されません` | Node.js未インストール、またはインストール後にPowerShellを開き直していない |
+| `npm install` で better-sqlite3 のビルドに失敗する | Node.jsをLTS（20または22）に合わせる。それでも失敗する場合は `winget install Microsoft.VisualStudio.2022.BuildTools` |
+| Playwrightがブラウザを見つけられない | `1) 初回セットアップ` を実行する（`npm run install-browser` 相当） |
+| 日本語が文字化けする | cmd.exeではなくPowerShell（またはWindows Terminal）を使う |
+| `npm install` が社内ネットワークで失敗する | `npm config set proxy http://...` / `npm config set https-proxy http://...` |
+
 ## Googleスプレッドシートからコムデスクへ完全自動投入
 
 共有されたGoogleスプレッドシートを取得し、31列・電話番号・重複を検証してから、プロジェクト登録、重複確認通知のクリック、件数照合、送信、完了通知の確認まで連続実行します。
@@ -79,7 +144,7 @@ npm run hd:run -- --prefecture=茨城県 --area=対象市区町村 --category=�
 現在手動で操作しているGoogleマップ・食べログ拡張機能を、無人実行するためのCLI版です。取得CLIに加え、Phase 2のDrive自動振り分け・GAS無人実行・完成CSV検知まで実装済みです。
 既存の `hd-system` とは別リポジトリで管理する前提です。
 
-## HD AIアシスタント（Mac）
+## HD AIアシスタント（Mac / Windows）
 
 デスクトップの「HD AIアシスタント.app」をクリックすると、ローカル専用のチャット画面が開きます。現在のMVPでは次を自然文で確認できます。
 
@@ -88,6 +153,14 @@ npm run hd:run -- --prefecture=茨城県 --area=対象市区町村 --category=�
 - 「設定を確認して」
 
 アプリを作り直す場合は `./scripts/install-mac-app.sh` を実行します。画面本体は `desktop/`、ローカルサーバーは `desktop/server.js` です。サーバーは `127.0.0.1` のみに公開され、秘密情報は画面へ表示しません。
+
+Windowsでは、デスクトップにショートカットを作り、ログオン時に自動起動する設定を次で行います（macOSのLaunchAgentに相当）。
+
+```powershell
+.\scripts\install-windows-tasks.ps1 -Assistant
+```
+
+その場で開くだけなら `.\run.ps1 -Task assistant`（メニューの7番）でも起動できます。
 
 ## 現在できること
 
@@ -196,13 +269,31 @@ CSVは `output/googlemaps_*.csv` と `output/tabelog_*.csv`、途中経過は `s
 
 少量確認用の例は `config/jobs.example.csv` です。対象サイトの利用規約とrobots.txtを運用前に確認し、低頻度・必要最小限で実行してください。CAPTCHAやアクセス制限の回避は行いません。
 
-## 毎晩自動で動かす（Mac/Linux）
+## 毎晩自動で動かす
+
+### Mac / Linux
 
 `crontab -e` に次のように登録します（パスと時刻は変更してください）。
 
 ```cron
 0 1 * * * /absolute/path/hd-scraper-automation/scripts/run-nightly.sh
 ```
+
+### Windows
+
+タスクスケジューラへ登録します（既定は毎日2:00、`-NightlyTime 02:30` で変更）。
+
+```powershell
+.\scripts\install-windows-tasks.ps1 -Nightly
+```
+
+登録した設定を消す場合は `-Remove` を付けます。
+
+```powershell
+.\scripts\install-windows-tasks.ps1 -Nightly -Remove
+```
+
+ログは `logs\nightly-YYYYMMDD.log` に追記されます（`scripts/run-nightly.sh` と同じ内容）。
 
 PCを閉じたりスリープした場合は動きません。完全な「寝ていても自動」を安定運用する場合は、常時起動PC、VPS、GitHub Actions等の実行環境が必要です。ただしGoogleマップは画面構造変更、同意画面、CAPTCHA等で停止する可能性があるため、最初は自分のPCで少量検証してください。
 
@@ -222,7 +313,7 @@ SLACK_SIGNING_SECRET=...
 SLACK_ALLOWED_CHANNEL_IDS=C0123456789
 ```
 
-設定後に `./scripts/install-slack-service.sh` を実行すると、Macログイン中はSocket Modeが常駐します。対応コマンドは `/hd-list`、`/hd-list-sheet`、`/hd-list-status`、`/hd-list-cancel` です。ジョブは `state/jobs.sqlite` に保存され、再起動後は実行途中のジョブを待ち行列へ戻して再開します。
+設定後に `./scripts/install-slack-service.sh`（Windowsは `.\scripts\install-windows-tasks.ps1 -Slack`）を実行すると、ログイン中はSocket Modeが常駐します。対応コマンドは `/hd-list`、`/hd-list-sheet`、`/hd-list-status`、`/hd-list-cancel` です。ジョブは `state/jobs.sqlite` に保存され、再起動後は実行途中のジョブを待ち行列へ戻して再開します。
 
 ## 注意
 

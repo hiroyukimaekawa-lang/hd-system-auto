@@ -1,6 +1,6 @@
 #!/bin/zsh
 set -eu
-ROOT="/Users/maekawahiroyuki/hd-system-auto"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP="$HOME/Desktop/HD AIアシスタント.app"
 NODE="$(command -v node)"
 TMP="$(mktemp -d)"

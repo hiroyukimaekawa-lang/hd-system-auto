@@ -1,6 +1,6 @@
 #!/bin/zsh
 set -eu
-ROOT="/Users/maekawahiroyuki/hd-system-auto"
+ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 NODE="$(command -v node)"
 AGENT="$HOME/Library/LaunchAgents/com.hd.slack.plist"
 TMP="$(mktemp)"
