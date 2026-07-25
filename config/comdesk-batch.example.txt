@@ -1,0 +1,16 @@
+# コムデスク一括投入リスト（サンプル）
+#
+# ・1行に1つ、GoogleスプレッドシートのURLを書きます。
+# ・空行と、この行のように # で始まる行は無視されます。
+# ・上から順番に投入されます。
+# ・プロジェクト名は住所から自動で決まります。明示したいときだけ、
+#   URLの後ろに「 | プロジェクト名」を付けてください（省略可）。
+#
+# このファイルをコピーして自分用のリストを作り、
+#   ./run.sh --task batch --list config/comdesk-batch.txt          （Mac）
+#   .\run.ps1 -Task batch -List config\comdesk-batch.txt           （Windows）
+# のように渡します。まずは付けずに（＝確認モードで）試してください。
+
+https://docs.google.com/spreadsheets/d/xxxxxxxxxxxxxxxxxxxxx1/edit?usp=sharing
+https://docs.google.com/spreadsheets/d/xxxxxxxxxxxxxxxxxxxxx2/edit?usp=sharing
+https://docs.google.com/spreadsheets/d/xxxxxxxxxxxxxxxxxxxxx3/edit?usp=sharing | 神奈川県_寒川町

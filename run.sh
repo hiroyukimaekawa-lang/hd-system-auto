@@ -22,6 +22,8 @@ AREA=""
 CATEGORY=""
 SPREADSHEET_URL=""
 PROJECT_NAME=""
+LIST_FILE=""
+STOP_ON_ERROR="false"
 EXECUTE="false"
 
 while [ $# -gt 0 ]; do
@@ -32,11 +34,14 @@ while [ $# -gt 0 ]; do
     --category)        CATEGORY="${2:-}";        shift 2 ;;
     --spreadsheet-url) SPREADSHEET_URL="${2:-}"; shift 2 ;;
     --project-name)    PROJECT_NAME="${2:-}";    shift 2 ;;
+    --list)            LIST_FILE="${2:-}";       shift 2 ;;
+    --stop-on-error)   STOP_ON_ERROR="true";     shift ;;
     --execute)         EXECUTE="true";           shift ;;
     -h|--help)
-      echo "使い方: ./run.sh [--task setup|login|dry|run|comdesk|merge|assistant|slack|check]"
+      echo "使い方: ./run.sh [--task setup|login|dry|run|comdesk|batch|merge|assistant|slack|check]"
       echo "        [--prefecture 茨城県] [--area 土浦市] [--category 飲食店]"
-      echo "        [--spreadsheet-url URL] [--project-name 名前] [--execute]"
+      echo "        [--spreadsheet-url URL] [--project-name 名前]"
+      echo "        [--list config/comdesk-batch.txt] [--stop-on-error] [--execute]"
       exit 0 ;;
     *) echo "[run] 不明な引数です: $1" >&2; exit 2 ;;
   esac
@@ -165,6 +170,28 @@ task_comdesk() {
   node "${args[@]}"
 }
 
+task_batch() {
+  local list args
+  list="$(ask 'リストファイルのパスを入力してください（例: config/comdesk-batch.txt）' "$LIST_FILE")"
+  if [ -z "$list" ]; then err "リストファイルが必要です。"; return 1; fi
+  if [ ! -f "$list" ]; then err "リストファイルが見つかりません: $list"; return 1; fi
+
+  args=(comdesk-playwright-importer/src/batch.js "--list=$list")
+  [ "$STOP_ON_ERROR" = "true" ] && args+=(--stop-on-error)
+
+  if [ "$EXECUTE" = "true" ]; then
+    warn "本番投入です。リスト内のすべてのシートがコムデスクへ順番に登録されます。"
+    confirm "実行してよろしいですか？" || { step "中止しました。"; return 0; }
+    ensure_comdesk_execute || return 0
+    args+=(--execute)
+  else
+    step "書き込みなしの確認実行（--dry-run）で実行します。"
+    args+=(--dry-run)
+  fi
+
+  node "${args[@]}"
+}
+
 task_merge() {
   local project args
   project="$(ask 'プロジェクト名を入力してください（例: 茨城県_稲敷市・美浦村）' "$PROJECT_NAME")"
@@ -227,9 +254,11 @@ show_menu() {
  4) 本番実行
  5) スプレッドシートからコムデスクへ投入（確認）
  6) スプレッドシートからコムデスクへ投入（本番）
- 7) HD AIアシスタントを開く
- 8) Slack常駐アプリを起動
- 9) 設定・構文チェック
+ 7) 複数スプレッドシートを一括投入（確認）
+ 8) 複数スプレッドシートを一括投入（本番）
+ 9) HD AIアシスタントを開く
+10) Slack常駐アプリを起動
+11) 設定・構文チェック
  0) 終了
 
 MENU
@@ -247,11 +276,13 @@ if [ "$TASK" = "menu" ]; then
     4) task_pipeline run ;;
     5) EXECUTE="false"; task_comdesk ;;
     6) EXECUTE="true";  task_comdesk ;;
-    7) task_assistant ;;
-    8) task_slack ;;
-    9) task_check ;;
+    7) EXECUTE="false"; task_batch ;;
+    8) EXECUTE="true";  task_batch ;;
+    9) task_assistant ;;
+    10) task_slack ;;
+    11) task_check ;;
     0) step "終了します。" ;;
-    *) err "1〜9 または 0 を入力してください。"; exit 1 ;;
+    *) err "0〜11 の番号を入力してください。"; exit 1 ;;
   esac
 else
   case "$TASK" in
@@ -260,6 +291,7 @@ else
     dry)       task_pipeline dry ;;
     run)       task_pipeline run ;;
     comdesk)   task_comdesk ;;
+    batch)     task_batch ;;
     merge)     task_merge ;;
     assistant) task_assistant ;;
     slack)     task_slack ;;

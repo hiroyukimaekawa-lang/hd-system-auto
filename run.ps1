@@ -13,7 +13,8 @@
     login      コムデスクへログイン（ログイン状態の保存）
     dry        確認実行（書き込みなし）
     run        本番実行
-    comdesk    スプレッドシートからコムデスクへ自動投入
+    comdesk    スプレッドシートからコムデスクへ自動投入（1件）
+    batch      複数スプレッドシートを一括投入（リストファイル）
     merge      取得済みリストの統合（稲敷市・美浦村）
     assistant  HD AIアシスタント（デスクトップ画面）を開く
     slack      Slack常駐アプリを起動
@@ -28,13 +29,16 @@
 .EXAMPLE
     .\run.ps1 -Task comdesk -SpreadsheetUrl "https://docs.google.com/spreadsheets/d/xxxx/edit"
 
+.EXAMPLE
+    .\run.ps1 -Task batch -List config\comdesk-batch.txt
+
 .NOTES
     このファイルは UTF-8 (BOM付き) で保存すること。
     BOM を消すと Windows PowerShell 5.1 で日本語が文字化けする。
 #>
 [CmdletBinding()]
 param(
-    [ValidateSet('menu', 'setup', 'login', 'dry', 'run', 'comdesk', 'merge', 'assistant', 'slack', 'check')]
+    [ValidateSet('menu', 'setup', 'login', 'dry', 'run', 'comdesk', 'batch', 'merge', 'assistant', 'slack', 'check')]
     [string]$Task = 'menu',
 
     [string]$Prefecture,
@@ -42,6 +46,12 @@ param(
     [string]$Category,
     [string]$SpreadsheetUrl,
     [string]$ProjectName,
+
+    # 一括投入のリストファイル（1行1URL）
+    [string]$List,
+
+    # 一括投入で、1件でも失敗したらそこで中断する
+    [switch]$StopOnError,
 
     # 本番投入を明示する（未指定なら書き込みなしの確認実行）
     [switch]$Execute,
@@ -264,6 +274,35 @@ function Invoke-Comdesk {
     Invoke-Node $nodeArgs $ScriptDir
 }
 
+function Invoke-Batch {
+    $listFile = Read-Required 'リストファイルのパスを入力してください（例: config\comdesk-batch.txt）' $List
+    if (-not $listFile) {
+        Write-Err 'リストファイルが必要です。'
+        $script:LastExit = 1
+        return
+    }
+    if (-not (Test-Path -LiteralPath $listFile)) {
+        Write-Err "リストファイルが見つかりません: $listFile"
+        $script:LastExit = 1
+        return
+    }
+
+    $nodeArgs = @('comdesk-playwright-importer/src/batch.js', "--list=$listFile")
+    if ($StopOnError) { $nodeArgs += '--stop-on-error' }
+
+    if ($Execute) {
+        Write-Warn '本番投入です。リスト内のすべてのシートがコムデスクへ順番に登録されます。'
+        if (-not (Confirm-Action '実行してよろしいですか？')) { Write-Step '中止しました。'; $script:LastExit = 0; return }
+        if (-not (Confirm-ComdeskExecute)) { $script:LastExit = 0; return }
+        $nodeArgs += '--execute'
+    } else {
+        Write-Step '書き込みなしの確認実行（--dry-run）で実行します。'
+        $nodeArgs += '--dry-run'
+    }
+
+    Invoke-Node $nodeArgs $ScriptDir
+}
+
 function Invoke-Merge {
     $projectName = Read-Required 'プロジェクト名を入力してください（例: 茨城県_稲敷市・美浦村）' $ProjectName
     if (-not $projectName) {
@@ -344,9 +383,11 @@ function Show-Menu {
     Write-Host ' 4) 本番実行'
     Write-Host ' 5) スプレッドシートからコムデスクへ投入（確認）'
     Write-Host ' 6) スプレッドシートからコムデスクへ投入（本番）'
-    Write-Host ' 7) HD AIアシスタントを開く'
-    Write-Host ' 8) Slack常駐アプリを起動'
-    Write-Host ' 9) 設定・構文チェック'
+    Write-Host ' 7) 複数スプレッドシートを一括投入（確認）'
+    Write-Host ' 8) 複数スプレッドシートを一括投入（本番）'
+    Write-Host ' 9) HD AIアシスタントを開く'
+    Write-Host '10) Slack常駐アプリを起動'
+    Write-Host '11) 設定・構文チェック'
     Write-Host ' 0) 終了'
     Write-Host ''
 }
@@ -363,11 +404,13 @@ if ($Task -eq 'menu') {
         '4' { Invoke-Pipeline 'run' }
         '5' { $Execute = $false; Invoke-Comdesk }
         '6' { $Execute = $true;  Invoke-Comdesk }
-        '7' { Invoke-Assistant }
-        '8' { Invoke-SlackApp }
-        '9' { Invoke-Check }
+        '7' { $Execute = $false; Invoke-Batch }
+        '8' { $Execute = $true;  Invoke-Batch }
+        '9' { Invoke-Assistant }
+        '10' { Invoke-SlackApp }
+        '11' { Invoke-Check }
         '0' { Write-Step '終了します。' }
-        default { Write-Err '1〜9 または 0 を入力してください。'; $script:LastExit = 1 }
+        default { Write-Err '0〜11 の番号を入力してください。'; $script:LastExit = 1 }
     }
 } else {
     switch ($Task) {
@@ -376,6 +419,7 @@ if ($Task -eq 'menu') {
         'dry'       { Invoke-Pipeline 'dry' }
         'run'       { Invoke-Pipeline 'run' }
         'comdesk'   { Invoke-Comdesk }
+        'batch'     { Invoke-Batch }
         'merge'     { Invoke-Merge }
         'assistant' { Invoke-Assistant }
         'slack'     { Invoke-SlackApp }

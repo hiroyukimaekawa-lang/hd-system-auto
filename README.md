@@ -13,11 +13,12 @@ Windows・macOS のどちらでも同じ操作で動きます（Node.js 20以上
 | 共通（従来どおり手で叩く場合） | `npm run ...`（このREADMEの各節） |
 
 ```
- 1) 初回セットアップ（最初の1回だけ）      6) スプレッドシートから投入（本番）
- 2) コムデスクにログイン                   7) HD AIアシスタントを開く
- 3) 確認実行（書き込みなし / dry-run）      8) Slack常駐アプリを起動
- 4) 本番実行                               9) 設定・構文チェック
- 5) スプレッドシートから投入（確認）        0) 終了
+ 1) 初回セットアップ（最初の1回だけ）      7) 複数シートを一括投入（確認）
+ 2) コムデスクにログイン                   8) 複数シートを一括投入（本番）
+ 3) 確認実行（書き込みなし / dry-run）      9) HD AIアシスタントを開く
+ 4) 本番実行                              10) Slack常駐アプリを起動
+ 5) スプレッドシートから投入（確認）       11) 設定・構文チェック
+ 6) スプレッドシートから投入（本番）        0) 終了
 ```
 
 引数を付ければメニューを出さずに実行できます。
@@ -78,6 +79,51 @@ npm run comdesk:auto -- --spreadsheet-url="GoogleスプレッドシートURL" --
 ```
 
 プロジェクト名は住所から `都道府県_市区町村` として決定します。指定する場合は `--project-name=茨城県_稲敷市・美浦村` を追加します。ジョブ状態、結果、ログ、停止時スクリーンショットは `data/comdesk-jobs/<jobId>/` に保存され、後続の取得済み地域地図にも利用できます。
+
+## 複数のスプレッドシートをまとめて投入する（一括）
+
+投入したいスプレッドシートが何件もある場合は、URLを1行ずつ書いたリストファイルを渡すと、上から順番に自動で投入します。中身は単発投入（`comdesk:auto`）と同じ処理を1件ずつ呼ぶだけなので、投入・通知確認・結果取得の挙動は変わりません。ログイン中のブラウザを共有するため、並列ではなく順番に処理します。
+
+1. サンプルをコピーして自分用のリストを作ります。
+
+   ```bash
+   cp config/comdesk-batch.example.txt config/comdesk-batch.txt
+   ```
+
+2. `config/comdesk-batch.txt` にスプレッドシートのURLを1行ずつ書きます。空行と `#` 始まりの行は無視されます。プロジェクト名を明示したいときだけ、URLの後ろに ` | 名前` を付けます（省略時は住所から自動決定）。
+
+   ```text
+   https://docs.google.com/spreadsheets/d/AAA/edit?usp=sharing
+   https://docs.google.com/spreadsheets/d/BBB/edit?usp=sharing
+   https://docs.google.com/spreadsheets/d/CCC/edit | 神奈川県_寒川町
+   ```
+
+3. まず確認（登録なし）→ 問題なければ本番投入します。
+
+   ```bash
+   # 確認（何も登録されない）
+   npm run comdesk:batch:dry -- --list=config/comdesk-batch.txt
+
+   # 本番投入（.envのCOMDESK_EXECUTE=trueも必要）
+   COMDESK_EXECUTE=true npm run comdesk:batch -- --list=config/comdesk-batch.txt --execute
+   ```
+
+ランチャーからも実行できます（メニューの7・8番）。
+
+```powershell
+.\run.ps1 -Task batch -List config\comdesk-batch.txt          # Windows・確認
+.\run.ps1 -Task batch -List config\comdesk-batch.txt -Execute # Windows・本番
+```
+
+```bash
+./run.sh --task batch --list config/comdesk-batch.txt            # Mac・確認
+./run.sh --task batch --list config/comdesk-batch.txt --execute  # Mac・本番
+```
+
+- 既定では、途中で1件失敗しても残りは続行します。最後に「成功○件／失敗○件」の一覧を表示し、`data/comdesk-jobs/batch-<日時>.json` にも保存します。
+- 1件でも失敗したらそこで止めたい場合は `--stop-on-error`（ランチャーは `-StopOnError`）を付けます。
+- 同じURLが複数行あっても、重複は自動で1件にまとめます。
+- リストファイルはURL（＝共有先）を含む個人データのため、`config/comdesk-batch.txt` は Git 追跡対象外です（サンプルの `.example.txt` だけ追跡します）。
 
 ## 営業リストを1回の操作で作る（統合版）
 
