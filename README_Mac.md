@@ -79,6 +79,21 @@ npm run comdesk:auto:dry -- --spreadsheet-url="ここにリンク"
 COMDESK_EXECUTE=true npm run comdesk:auto -- --spreadsheet-url="ここにリンク" --execute
 ```
 
+#### プロジェクト名を自分で指定したいとき
+
+名前を付けないと住所から自動で決まり、市区町村までしか入りません（例：横浜市の泉区は「神奈川県_横浜市」になります）。「神奈川県_横浜市泉区」のように入れたいときは `--project-name="…"` を足します。まず dry で名前を確認してから本番がおすすめです。
+
+```bash
+npm run comdesk:auto:dry -- --spreadsheet-url="ここにリンク" --project-name="神奈川県_横浜市泉区"
+```
+
+```bash
+COMDESK_EXECUTE=true npm run comdesk:auto -- --spreadsheet-url="ここにリンク" --project-name="神奈川県_横浜市泉区" --execute
+```
+
+- 一括投入（下のB）では、リストの各行で `URL | 神奈川県_横浜市泉区` のように書けば行ごとに名前を指定できます。
+- すでに違う名前で本番登録してしまった場合、このツールに名前変更機能はありません。コムデスクの画面でプロジェクト名を直してください（dry だけなら未登録なので、正しい名前で入れ直すだけでOK）。
+
 ### B. 何件もまとめて投入する
 
 **最初の1回だけ**、リスト用のファイルを作ります。
@@ -100,6 +115,32 @@ npm run comdesk:batch:dry -- --list=config/comdesk-batch.txt
 ```bash
 COMDESK_EXECUTE=true npm run comdesk:batch -- --list=config/comdesk-batch.txt --execute
 ```
+
+---
+
+## 途中で止まったとき（続きから再開する）
+
+1つのスプレッドシートは「①全ジャンルを登録 → ②各ジャンルのインポート実行」の順で進みます。②の途中で止まった場合、**登録はやり直さず、残ったジャンルのインポート実行だけ**を再開できます。
+
+やり方（`ジョブID`・`プロジェクト名`・`残ったジャンル` を自分のものに置き換えます）。
+
+- `ジョブID` … 止まったときに表示される `data/comdesk-jobs/●●●●` の `●●●●` の部分。
+- `残ったジャンル` … 画面ログで「インポート完了」と出ていない（未実行の）ジャンルを、カンマ区切りで並べます。
+
+```bash
+cd comdesk-playwright-importer
+node src/import.js --input="../data/comdesk-jobs/ジョブID/source.xlsx" --project-name="プロジェクト名" --finalize-only --only-workgroups="残ったジャンル1,残ったジャンル2" --result-file="../data/comdesk-jobs/ジョブID/resume-result.json" --screenshots-dir="../data/comdesk-jobs/ジョブID/screenshots"
+cd ..
+```
+
+- `--finalize-only` は「承認 → 送信 → 完了通知の確認」だけを再開します（登録済みの重複チェックは自動でスキップ）。
+- あるジャンルで「想定外のダイアログ」で繰り返し止まる場合は、そのジャンルを `--only-workgroups` から外して他を先に終わらせ、そのジャンルだけコムデスクの画面で「重複チェック完了」通知から手動でインポートしてください（登録とCSVは投入済みです）。
+- 特定ジャンルの登録状況を確認したいときは次を使います。
+  ```bash
+  cd comdesk-playwright-importer
+  node src/inspect-import-status.js --project-name="プロジェクト名" --workgroup="和食"
+  cd ..
+  ```
 
 ---
 
