@@ -1,0 +1,63 @@
+/* 商談資料バー（店舗情報ヘッダー直下）と資料ライブラリ */
+
+/* スクリプトとメモの高さを奪わないよう、1行に収めて横スクロールさせる */
+.material-bar{display:flex;align-items:center;gap:10px;flex-wrap:nowrap;padding:7px 3vw;background:#e8eee8;border-bottom:1px solid var(--line);flex:0 0 auto}
+.material-bar-label{font-size:10px;font-weight:800;letter-spacing:.1em;color:var(--green);white-space:nowrap}
+.material-bar-list{display:flex;gap:7px;flex-wrap:nowrap;flex:1;min-width:0;overflow-x:auto;padding-bottom:1px;scrollbar-width:thin}
+.material-bar-empty{font-size:12px;color:var(--muted)}
+.material-chip{display:inline-block;max-width:260px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;padding:6px 13px;border-radius:999px;background:var(--panel);border:1px solid #cfded3;color:var(--green);font-size:12px;font-weight:700;text-decoration:none}
+.material-chip:hover{background:var(--mint)}
+.material-chip.internal{border-style:dashed;border-color:var(--gold)}
+.material-chip.internal::before{content:"社内 ";font-size:10px;color:#8a6a14}
+.material-bar-all{border:0;background:var(--green);color:#fff;border-radius:999px;padding:6px 14px;font-size:12px;font-weight:700;cursor:pointer;white-space:nowrap}
+.material-missing{font-size:12px;color:var(--muted)}
+
+.materials-dialog::backdrop{background:#0b1a1740}
+.materials-dialog{border:0;border-radius:20px;padding:0;max-width:1080px;width:92vw;max-height:86vh;box-shadow:var(--shadow)}
+.materials-shell{display:flex;flex-direction:column;max-height:86vh;background:var(--paper)}
+.materials-shell>header{display:flex;justify-content:space-between;align-items:center;gap:16px;padding:20px 26px 14px;border-bottom:1px solid var(--line);background:var(--panel)}
+.materials-shell>header h2{margin:3px 0 0;font:700 24px Georgia,"Yu Mincho",serif}
+.materials-shell>header button{border:0;background:#e7e9e4;border-radius:9px;width:34px;height:34px;font-size:17px;cursor:pointer}
+.materials-filter{display:flex;gap:12px;flex-wrap:wrap;padding:14px 26px;border-bottom:1px solid var(--line)}
+.materials-filter label{display:grid;gap:4px;font-size:11px;color:var(--muted)}
+.materials-filter select,.materials-filter input{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);min-width:180px}
+.material-list{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;padding:18px 26px 24px;overflow-y:auto}
+
+.material-card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:16px 18px;display:grid;gap:10px;align-content:start}
+.material-card.stopped{opacity:.6}
+.material-card-head{display:grid;gap:4px}
+.material-card-head h3{margin:0;font:700 16px/1.4 -apple-system,"Hiragino Sans",sans-serif}
+.material-card-head p{margin:0;font-size:12px;color:var(--muted);line-height:1.55}
+.material-visibility{justify-self:start;font-size:10px;font-weight:800;padding:3px 9px;border-radius:999px;background:#e8eee8;color:var(--green)}
+.material-visibility.v-fs_internal{background:#f4e6c6;color:#7a5a17}
+.material-visibility.v-admin_only{background:#fce4df;color:#9d3927}
+.material-meta{display:flex;gap:6px;flex-wrap:wrap}
+.material-meta span{font-size:10px;color:var(--muted);background:#f1f2ec;border-radius:6px;padding:3px 7px}
+.material-meta .material-stopped{background:#fce4df;color:#9d3927;font-weight:700}
+.material-actions{display:flex;gap:7px;flex-wrap:wrap;align-items:center}
+.material-actions button{border:0;border-radius:8px;padding:7px 12px;font-size:12px;font-weight:700;cursor:pointer}
+.material-open{display:inline-block;padding:7px 14px;border-radius:8px;background:var(--coral);color:#fff;font-size:12px;font-weight:700;text-decoration:none}
+.material-open:hover{filter:brightness(1.05)}
+
+/* トークスクリプトテンプレ画面のタブ */
+.template-tabs{display:flex;gap:6px;margin:24px 0 18px;border-bottom:1px solid var(--line)}
+.template-tabs button{border:0;background:none;padding:11px 18px;font-weight:700;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent}
+.template-tabs button.active{color:var(--green);border-bottom-color:var(--coral)}
+.material-admin-head{display:flex;justify-content:space-between;align-items:end;gap:16px;flex-wrap:wrap;margin-bottom:14px}
+.material-form-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:14px}
+.material-form-grid label{display:grid;gap:5px;font-size:12px;color:var(--muted)}
+.material-form-grid label.wide{grid-column:1/-1}
+.material-form-grid input,.material-form-grid select,.material-form-grid textarea{padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);width:100%}
+
+@media(max-width:1400px){
+  .material-chip{max-width:200px}
+}
+@media(max-width:1200px){
+  .material-bar{padding:6px 18px}
+  .material-chip{max-width:170px}
+}
+@media(max-width:900px){
+  .material-bar{position:sticky;top:0;flex-wrap:wrap}
+  .material-bar-list{flex-wrap:wrap;overflow-x:visible}
+  .material-list{grid-template-columns:1fr}
+}

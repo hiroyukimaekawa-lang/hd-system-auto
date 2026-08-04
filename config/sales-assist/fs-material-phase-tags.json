@@ -1,0 +1,22 @@
+{
+  "description": "既存のトークスクリプトのフェーズIDへ、商談資料のphaseTagsを紐づける対応表。スクリプト本文とフェーズ構成は変更せず、この表だけで表示資料を調整する。",
+  "talkScripts": {
+    "default": {
+      "agenda": [],
+      "company": ["company_intro", "hp_value"],
+      "hp_impression": ["hp_value"],
+      "future": [],
+      "hearing": [],
+      "hp_role": ["hp_value"],
+      "hp_explanation": ["hp_value", "proposal"],
+      "questions": [],
+      "examples": ["hp_value", "proposal"],
+      "test_closing": ["proposal"],
+      "free_conditions": ["free_scheme", "electricity_intro", "electricity_comparison", "contract_conditions"],
+      "application": ["application", "application_form", "contract_readthrough", "contract_conditions"],
+      "line_email": [],
+      "cloudsign": ["cloudsign", "contract_readthrough"],
+      "enepal_card": ["card_amex", "card_smbc", "card_ac", "application", "electricity_intro"]
+    }
+  }
+}

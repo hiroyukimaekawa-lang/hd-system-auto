@@ -10,6 +10,7 @@ import { createJobId, JobQueue } from '../src/queue.js';
 import { SerialWorker } from '../src/worker.js';
 import { SalesAssistStore } from '../src/sales-assist.js';
 import { ObsidianSalesArchive } from '../src/obsidian-sales-archive.js';
+import { LocalSqliteSalesMaterialRepository } from '../src/repositories/sqlite-sales-material-repository.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 loadEnv(path.join(root, '.env'));
@@ -18,6 +19,14 @@ const port = Number(process.env.HD_ASSISTANT_PORT) || 43117;
 const queue = new JobQueue(path.join(root, 'state', 'jobs.sqlite'));
 const worker = new SerialWorker({ queue, root }); worker.start();
 const sales = new SalesAssistStore(path.join(root, 'state', 'sales-assist.sqlite'));
+const materials = new LocalSqliteSalesMaterialRepository(sales.db);
+const phaseTagFile = path.join(root, 'config', 'sales-assist', 'fs-material-phase-tags.json');
+const phaseTagMap = talkScriptId => {
+  const config = JSON.parse(fs.readFileSync(phaseTagFile, 'utf8')).talkScripts || {};
+  return config[talkScriptId] || config.default || {};
+};
+// 資料の権限。将来ログイン利用者のロールへ差し替える。
+const viewerOf = url => ['customer','fs','admin'].includes(url.searchParams.get('viewer')) ? url.searchParams.get('viewer') : 'fs';
 const obsidianConfig = JSON.parse(fs.readFileSync(path.join(root, 'config', 'sales-assist', 'obsidian.json'), 'utf8'));
 const obsidian = obsidianConfig.enabled ? new ObsidianSalesArchive(obsidianConfig) : null;
 const syncSession = id => { if (obsidian) obsidian.syncSession(sales,id); };
@@ -119,6 +128,32 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'POST' && /^\/api\/fs\/meetings\/[^/]+\/memos$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const memo=sales.addMeetingMemo(id,body); if(memo)syncSession(id); return json(response,memo?201:404,{ ok:Boolean(memo), memo }); }
     if (request.method === 'PUT' && /^\/api\/fs\/meetings\/[^/]+\/memo-draft$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const saved=sales.saveMemoDraft(id,body.content); return json(response,saved?200:404,{ ok:Boolean(saved), ...(saved||{}) }); }
     if (request.method === 'POST' && /^\/api\/fs\/meetings\/[^/]+\/interrupt$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const session=sales.interrupt(id,body); if(session)syncSession(id); return json(response,session?200:404,{ ok:Boolean(session), session }); }
+    if (request.method === 'GET' && /^\/api\/fs\/materials(\?|$)/.test(request.url)) {
+      const url = new URL(request.url, 'http://127.0.0.1');
+      const active = url.searchParams.get('active');
+      return json(response, 200, { ok:true, materials:materials.list({
+        viewer:viewerOf(url), category:url.searchParams.get('category') || '', product:url.searchParams.get('product') || '',
+        keyword:url.searchParams.get('keyword') || '', active:active === null ? undefined : active !== 'false'
+      }) });
+    }
+    if (request.method === 'GET' && /^\/api\/fs\/meetings\/[^/]+\/materials(\?|$)/.test(request.url)) {
+      const url = new URL(request.url, 'http://127.0.0.1');
+      const id = decodeURIComponent(url.pathname.split('/')[4]);
+      const session = sales.session(id);
+      if (!session) return json(response, 404, { ok:false, text:'商談が見つかりません' });
+      const result = materials.phaseMaterials({
+        phaseId:url.searchParams.get('phaseId') || session.current_phase,
+        phaseTagMap:phaseTagMap(session.talk_script_id),
+        products:session.context_data?.targetProducts || '',
+        viewer:viewerOf(url), limit:Number(url.searchParams.get('limit')) || 4
+      });
+      return json(response, 200, { ok:true, ...result });
+    }
+    if (request.method === 'POST' && request.url === '/api/fs/materials/import') { const body = await readBody(request); const result = materials.importAll(body.materials || [], { actor:body.actor || 'FS' }); return json(response, result.errors.length ? 400 : 200, { ok:!result.errors.length, ...result, text:result.errors.join('\n') }); }
+    // 不正なURLやIDは400で返す（500にせず入力の誤りとして扱う）
+    if (request.method === 'POST' && request.url === '/api/fs/materials') { const body = await readBody(request); try { return json(response, 201, { ok:true, material:materials.save(body) }); } catch (error) { return json(response, 400, { ok:false, text:error.message }); } }
+    if (request.method === 'PUT' && /^\/api\/fs\/materials\/[^/?]+$/.test(request.url)) { const body = await readBody(request); const id = decodeURIComponent(request.url.split('/')[4]); const current = materials.get(id, { viewer:'admin' }); if (!current) return json(response, 404, { ok:false, text:'資料が見つかりません' }); try { return json(response, 200, { ok:true, material:materials.save({ ...current, ...body, id }) }); } catch (error) { return json(response, 400, { ok:false, text:error.message }); } }
+    if (request.method === 'PATCH' && /^\/api\/fs\/materials\/[^/?]+\/status$/.test(request.url)) { const body = await readBody(request); const id = decodeURIComponent(request.url.split('/')[4]); const material = materials.setActive(id, body.active !== false, body.actor || 'FS'); return json(response, material ? 200 : 404, { ok:Boolean(material), material, ...(material ? {} : { text:'資料が見つかりません' }) }); }
     if (request.method === 'POST' && request.url === '/api/chat') { const body = await readBody(request); return json(response, 200, { ok: true, ...(await chat(body.message)) }); }
     const pathname = request.url === '/' ? '/index.html' : request.url;
     const file = path.resolve(publicDir, `.${pathname}`);

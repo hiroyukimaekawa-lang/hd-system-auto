@@ -421,7 +421,7 @@ function selectPhase(id){
   renderApplicationGuide();
   renderReturnRecommendations();
   $('#objection-select').value=config.objections.find(item=>item.applicable_phase===id)?.id||'other';$('#suggestions').innerHTML='';currentSuggestion=null;
-  if(currentSession){currentSession.current_phase=id;scheduleProgressSave();FsMeetingNote.setPhase(id)}
+  if(currentSession){currentSession.current_phase=id;scheduleProgressSave();FsMeetingNote.setPhase(id);renderMaterialBar()}
 }
 function applicationText(value,variant){
   return String(value||'').replaceAll('{{revisionLimit}}',variant.revisionLimit).replaceAll('{{continuationPeriod}}',variant.continuationPeriod).replaceAll('{{service}}',variant.service).replaceAll('【店舗名】',currentSession?.customer_name||'店舗名');
@@ -476,6 +476,108 @@ async function load(){
 $('#deal-status-filter').addEventListener('change',renderDeals);
 $('#deal-search').addEventListener('input',renderDeals);
 $('#toggle-script-admin').addEventListener('click',()=>{const panel=$('#script-admin');panel.hidden=!panel.hidden;$('#toggle-script-admin').textContent=panel.hidden?'管理メニューを表示':'管理メニューを隠す'});
+$$('[data-template-tab]').forEach(button=>button.addEventListener('click',()=>{
+  const tab=button.dataset.templateTab;
+  $$('[data-template-tab]').forEach(item=>item.classList.toggle('active',item===button));
+  $('#template-tab-scripts').hidden=tab!=='scripts';
+  $('#template-tab-materials').hidden=tab!=='materials';
+  $('#toggle-script-admin').hidden=tab!=='scripts';
+  if(tab==='materials')loadMaterialAdmin();
+}));
+
+// ===== 商談資料 =====
+const MATERIAL_OPTIONS={
+  category:{'':'すべて',...FsMaterials.labels.category},
+  product:{'':'すべて',...FsMaterials.labels.product},
+  sourceType:FsMaterials.labels.sourceType,
+  visibility:FsMaterials.labels.visibility
+};
+function fillOptions(select,entries,selected){
+  if(!select)return;
+  select.textContent='';
+  for(const [value,label] of Object.entries(entries))select.append(el('option',{value,text:label}));
+  if(selected!==undefined)select.value=selected;
+}
+function materialQuery(params){
+  const query=new URLSearchParams();
+  for(const [key,value] of Object.entries(params))if(value!==''&&value!==undefined&&value!==null)query.set(key,value);
+  return query.toString()?`?${query}`:'';
+}
+async function copyMaterialLink(material,button){
+  try{await navigator.clipboard.writeText(material.url);button.textContent='コピーしました';setTimeout(()=>{button.textContent='リンクをコピー'},1800)}
+  catch{toast('リンクをコピーできませんでした')}
+}
+const materialHandlers=admin=>({
+  onCopy:copyMaterialLink,
+  onEdit:admin?openMaterialForm:undefined,
+  onToggle:admin?async material=>{
+    try{await api(`/api/fs/materials/${encodeURIComponent(material.id)}/status`,{method:'PATCH',body:JSON.stringify({active:!material.active,actor:'管理者'})});await loadMaterialAdmin();toast(material.active?'資料を停止しました':'資料を再開しました')}
+    catch(error){toast(error.message)}
+  }:undefined
+});
+async function loadMaterialAdmin(){
+  fillOptions($('#material-filter-category'),MATERIAL_OPTIONS.category,$('#material-filter-category').value||'');
+  fillOptions($('#material-filter-product'),MATERIAL_OPTIONS.product,$('#material-filter-product').value||'');
+  try{
+    const data=await api(`/api/fs/materials${materialQuery({viewer:'admin',category:$('#material-filter-category').value,product:$('#material-filter-product').value,keyword:$('#material-filter-keyword').value.trim(),active:$('#material-filter-active').value})}`);
+    FsMaterials.renderList($('#material-admin-list'),data.materials,materialHandlers(true));
+  }catch(error){FsMaterials.renderList($('#material-admin-list'),[]);toast(error.message)}
+}
+['#material-filter-category','#material-filter-product','#material-filter-active'].forEach(id=>$(id).addEventListener('change',loadMaterialAdmin));
+$('#material-filter-keyword').addEventListener('input',loadMaterialAdmin);
+function openMaterialForm(material){
+  const form=$('#material-form');form.reset();
+  fillOptions(form.elements.category,FsMaterials.labels.category);
+  fillOptions(form.elements.product,FsMaterials.labels.product);
+  fillOptions(form.elements.sourceType,FsMaterials.labels.sourceType);
+  fillOptions(form.elements.visibility,FsMaterials.labels.visibility);
+  $('#material-form-message').textContent='';
+  $('#material-form-title').textContent=material?.id?'資料を編集':'資料を追加';
+  form.elements.id.readOnly=Boolean(material?.id);
+  if(material?.id){
+    for(const name of ['id','title','url','description','sourceTitle','sortOrder'])if(form.elements[name])form.elements[name].value=material[name]??'';
+    for(const name of ['category','product','sourceType','visibility'])if(form.elements[name])form.elements[name].value=material[name];
+    form.elements.phaseTags.value=(material.phaseTags||[]).join(', ');
+    form.elements.active.value=String(material.active);
+  }
+  $('#material-form-dialog').showModal();
+}
+$('#open-material-form').addEventListener('click',()=>openMaterialForm(null));
+$('#close-material-form').addEventListener('click',()=>$('#material-form-dialog').close());
+$('#material-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  const form=event.currentTarget,raw=Object.fromEntries(new FormData(form));
+  const body={...raw,sortOrder:Number(raw.sortOrder)||999,active:raw.active==='true',customerShareable:raw.visibility==='customer_shareable',phaseTags:raw.phaseTags.split(/[,、\s]+/).filter(Boolean),actor:'管理者'};
+  try{
+    await api(`/api/fs/materials${form.elements.id.readOnly?`/${encodeURIComponent(body.id)}`:''}`,{method:form.elements.id.readOnly?'PUT':'POST',body:JSON.stringify(body)});
+    $('#material-form-dialog').close();await loadMaterialAdmin();toast('資料を保存しました');
+  }catch(error){$('#material-form-message').textContent=error.message}
+});
+async function renderMaterialBar(){
+  const bar=$('#material-bar');
+  if(!currentSession)return FsMaterials.renderBar(bar,[],{message:'商談を開始すると、フェーズに合う資料が表示されます'});
+  // 資料の取得に失敗しても商談画面は止めない
+  try{
+    const data=await api(`/api/fs/meetings/${encodeURIComponent(currentSession.id)}/materials${materialQuery({phaseId:currentPhase?.id||'',limit:4})}`);
+    FsMaterials.renderBar(bar,data.materials,{onOpenAll:()=>openMaterialsDialog()});
+  }catch{FsMaterials.renderBar(bar,[],{onOpenAll:()=>openMaterialsDialog(),message:'資料を読み込めませんでした'})}
+}
+async function openMaterialsDialog(){
+  fillOptions($('#materials-dialog-category'),MATERIAL_OPTIONS.category,$('#materials-dialog-category').value||'');
+  fillOptions($('#materials-dialog-product'),MATERIAL_OPTIONS.product,$('#materials-dialog-product').value||'');
+  $('#materials-dialog').showModal();
+  await refreshMaterialsDialog();
+}
+async function refreshMaterialsDialog(){
+  try{
+    const data=await api(`/api/fs/materials${materialQuery({active:'true',category:$('#materials-dialog-category').value,product:$('#materials-dialog-product').value,keyword:$('#materials-dialog-keyword').value.trim()})}`);
+    $('#materials-dialog-meta').textContent=`${data.materials.length}件｜資料は新しいタブで開きます`;
+    FsMaterials.renderList($('#materials-dialog-list'),data.materials,{onCopy:copyMaterialLink});
+  }catch(error){FsMaterials.renderList($('#materials-dialog-list'),[]);$('#materials-dialog-meta').textContent=error.message}
+}
+['#materials-dialog-category','#materials-dialog-product'].forEach(id=>$(id).addEventListener('change',refreshMaterialsDialog));
+$('#materials-dialog-keyword').addEventListener('input',refreshMaterialsDialog);
+$('#close-materials').addEventListener('click',()=>$('#materials-dialog').close());
 $('#application-variant').addEventListener('change',()=>renderApplicationGuide());
 async function renderDealHeader(){
   const targets={owner:$('#deal-header-owner'),meta:$('#deal-header-meta'),links:$('#deal-header-links'),notes:$('#deal-header-notes')};
@@ -491,7 +593,7 @@ async function renderDealHeader(){
 async function enterSalesSession(session){
   currentSession=session;await loadScriptPhases(currentSession.talk_script_id);renderPhases();const script=catalog.scripts.find(item=>item.id===currentSession.talk_script_id),department=catalog.departments.find(item=>item.id===currentSession.department_id);$('#session-customer').textContent=currentSession.customer_name||'店舗名未入力';$('#session-meta').textContent=[department?.name,script?.name,currentSession.talk_script_version,currentSession.context_data?.appointmentPattern&&`IS：${currentSession.context_data.appointmentPattern}`,currentSession.staff_id&&`担当 ${currentSession.staff_id}`].filter(Boolean).join(' ・ ');selectPhase(phaseById(currentSession.current_phase)?currentSession.current_phase:config.phases[0]?.id);show('assist');loadSessionRecord();loadTalkObjectionNotes();
   storage.set(ACTIVE_MEETING_KEY,currentSession.id);
-  await Promise.all([renderDealHeader(),FsMeetingNote.open(currentSession.id,currentSession.current_phase)]);
+  await Promise.all([renderDealHeader(),renderMaterialBar(),FsMeetingNote.open(currentSession.id,currentSession.current_phase)]);
 }
 function analyzeCurrentHandoff(){const text=$('#is-template-paste').value.trim();if(!text)return {};return applyIsTemplate(text)}
 async function savePreparation(){
