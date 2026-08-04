@@ -1,0 +1,123 @@
+/* FS個人画面（サイドバー・案件一覧・商談画面の店舗情報ヘッダーと殴り書きメモ） */
+
+/* 右上ユーザーメニュー：設定・業務自動化・HD AIの導線 */
+.user-menu{position:relative}
+.user-menu>summary{list-style:none;cursor:pointer;width:38px;height:38px;border-radius:10px;display:flex;align-items:center;justify-content:center;background:#e7e9e4;color:var(--ink);font-size:16px}
+.user-menu>summary::-webkit-details-marker{display:none}
+.user-menu>div{position:absolute;right:0;top:46px;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);display:grid;min-width:190px;padding:6px;z-index:30}
+.user-menu>div button{border:0;background:none;text-align:left;padding:10px 12px;border-radius:8px;cursor:pointer;color:var(--ink)}
+.user-menu>div button:hover{background:#eef0e9}
+
+/* サイドバー：FS業務の順番に4項目のみ */
+.sidebar .sidebar-toggle{margin-top:auto;color:#8fc3b4;font-size:12px}
+body.sidebar-collapsed .sidebar{width:76px;padding:18px 9px}
+body.sidebar-collapsed .sidebar button{justify-content:center;padding:13px;font-size:0}
+body.sidebar-collapsed .sidebar button span{width:auto;font-size:18px}
+body.sidebar-collapsed main{margin-left:76px}
+
+/* 各種案件用・各種案件結果と振り返り */
+.deal-filter{display:flex;gap:14px;flex-wrap:wrap;margin:26px 0 14px}
+.deal-filter label{display:grid;gap:5px;font-size:12px;color:var(--muted)}
+.deal-filter select,.deal-filter input{padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--panel);min-width:220px}
+.deal-list{display:grid;gap:12px}
+.deal-card{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px 22px;display:grid;gap:14px}
+.deal-card-head{display:grid;gap:4px}
+.deal-card-head h3{margin:0;font:700 20px Georgia,"Yu Mincho",serif}
+.deal-card-head p{margin:0;color:var(--muted);font-size:13px}
+.deal-status{justify-self:start;font-size:11px;font-weight:800;padding:4px 10px;border-radius:999px;background:#e8eee8;color:var(--green)}
+.deal-status.status-商談中{background:#ffe5dd;color:#9d3927}
+.deal-status.status-商談中断{background:#f4e6c6;color:#7a5a17}
+.deal-status.status-次回対応待ち{background:#dce9f7;color:#1d4a72}
+.deal-status.status-失注,.deal-status.status-キャンセル{background:#ececec;color:#5c5c5c}
+.deal-fields{display:grid;grid-template-columns:repeat(auto-fit,minmax(150px,1fr));gap:10px 18px}
+.deal-field{display:grid;gap:2px}
+.deal-field small{font-size:11px;color:var(--muted)}
+.deal-field b{font-weight:600;font-size:13px;word-break:break-word}
+.deal-actions-row{display:flex;gap:8px;flex-wrap:wrap}
+.deal-actions-row button{border:0;border-radius:9px;padding:9px 15px;font-weight:700;cursor:pointer;font-size:13px}
+.result-detail-body{display:grid;gap:14px;margin:18px 0}
+.result-block{background:#fbfaf5;border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.result-block h3{margin:0 0 6px;font-size:13px;color:var(--green)}
+.result-block p{margin:0;white-space:pre-wrap;font-size:14px}
+.result-memo{border-top:1px dashed var(--line);padding-top:6px;margin-top:6px !important}
+
+/* 商談準備フォーム */
+.prep-edit-banner{display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:#fff4e8;border:1px solid #e6c9a4;border-radius:12px;padding:12px 16px;margin-bottom:16px}
+.prep-fieldset{border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:0}
+.prep-fieldset legend{font-size:12px;font-weight:800;color:var(--green);padding:0 6px}
+.prep-optional{border:1px solid var(--line);border-radius:14px;padding:14px 20px;background:#fbfaf5}
+.prep-optional>summary{cursor:pointer;font-weight:700;font-size:14px}
+.prep-optional>div{margin-top:16px}
+.prep-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:14px}
+.prep-grid label{display:grid;gap:5px;font-size:12px;color:var(--muted)}
+.prep-grid label.wide{grid-column:1/-1}
+.prep-grid input,.prep-grid select,.prep-grid textarea{padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--ink);width:100%}
+
+/* 商談画面：店舗情報ヘッダー＋スクリプト＋メモを同時に表示する */
+.assist-view.active{display:flex;flex-direction:column;height:calc(100vh - 76px);overflow:hidden}
+.deal-header{background:var(--panel);border-bottom:1px solid var(--line);padding:14px 3vw 12px;display:grid;gap:10px;flex:0 0 auto;z-index:12}
+.deal-header-top{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+.deal-identity{display:flex;align-items:baseline;gap:10px;min-width:0}
+.deal-identity b{font:700 22px Georgia,"Yu Mincho",serif}
+.deal-identity span:not(.live-dot){color:var(--muted);font-size:14px}
+.deal-header-actions{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.deal-header-actions small{color:var(--muted);font-size:11px;max-width:340px}
+.deal-header-actions button{border:0;border-radius:9px;padding:9px 14px;font-weight:700;cursor:pointer;font-size:13px}
+.deal-header-meta{display:flex;flex-wrap:wrap;gap:6px 22px}
+.deal-header-meta div{display:grid}
+.deal-header-meta small{font-size:10px;color:var(--muted);letter-spacing:.06em}
+.deal-header-meta b{font-size:13px;font-weight:600}
+.deal-header-links{display:flex;flex-wrap:wrap;gap:8px}
+.deal-link{display:inline-block;padding:6px 13px;border-radius:999px;background:#e8eee8;color:var(--green);font-size:12px;font-weight:700;text-decoration:none;border:1px solid #cfded3}
+.deal-link:hover{background:var(--mint)}
+.deal-header-notes{background:#fbfaf5;border:1px solid var(--line);border-radius:10px;padding:9px 13px;display:grid;gap:4px}
+.deal-header-notes small{font-size:10px;color:var(--muted);font-weight:800;letter-spacing:.1em}
+.deal-notes-body{margin:0;font-size:13px;white-space:pre-wrap;line-height:1.55}
+.deal-notes-body.clamped{display:-webkit-box;-webkit-line-clamp:3;-webkit-box-orient:vertical;overflow:hidden}
+.deal-notes-toggle{justify-self:start;border:0;background:none;color:var(--green);font-size:12px;font-weight:700;cursor:pointer;padding:0}
+.deal-header.embedded{border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:14px;position:static}
+
+.assist-view.active .assist-grid{flex:1;min-height:0;display:grid;grid-template-columns:260px minmax(400px,1fr) 400px;overflow:hidden}
+.assist-view.active .phase-rail,.assist-view.active .script-panel,.assist-view.active .note-column{min-height:0;overflow-y:auto}
+/* 幅の狭いフローでもフェーズ名が切れないようにする */
+.assist-view.active .phase-rail{overflow-x:hidden;padding:22px 16px}
+.assist-view.active .phase-rail button div{min-width:0}
+.assist-view.active .phase-rail button small{width:auto;max-width:100%}
+.assist-view.active .phase-rail button b{overflow-wrap:anywhere}
+.note-column{display:flex;flex-direction:column;border-left:1px solid var(--line);background:#eef0e9}
+.assist-view.active .assist-panel{border-left:0;overflow:visible}
+
+/* 殴り書きメモ：常時表示・独立スクロール */
+.meeting-note{position:sticky;top:0;z-index:2;background:#eef0e9;border-bottom:1px solid var(--line);padding:18px 20px 14px;display:grid;gap:8px}
+.meeting-note-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
+.meeting-note-head h2{margin:2px 0 0;font:700 19px Georgia,"Yu Mincho",serif}
+.memo-status{font-size:11px;color:var(--muted);text-align:right}
+#meeting-memo-input{width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:11px;background:var(--panel);color:var(--ink);resize:vertical;min-height:104px;line-height:1.6}
+.meeting-note-hint{font-size:11px;color:var(--muted)}
+.meeting-memo-list{display:grid;gap:8px;max-height:34vh;overflow-y:auto}
+.meeting-memo{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 12px;display:grid;gap:3px}
+.meeting-memo small{font-size:10px;color:var(--muted)}
+.meeting-memo p{margin:0;font-size:13px;white-space:pre-wrap;line-height:1.55}
+
+/* 13インチ〜狭い画面：店舗情報を折りたたみ、メモ欄は320pxまで縮小 */
+@media(max-width:1400px){
+  .assist-view.active .assist-grid{grid-template-columns:200px minmax(360px,1fr) 360px}
+  .deal-header{padding:10px 20px 9px;gap:7px}
+  .deal-notes-body.clamped{-webkit-line-clamp:2}
+  .meeting-note{padding:14px 16px 12px}
+  #meeting-memo-input{min-height:88px}
+}
+@media(max-width:1200px){
+  .assist-view.active .assist-grid{grid-template-columns:170px minmax(320px,1fr) 320px}
+  .deal-header{padding:12px 18px 10px}
+  .deal-identity b{font-size:19px}
+}
+@media(max-width:900px){
+  .assist-view.active{height:auto;overflow:visible}
+  .assist-view.active .assist-grid{grid-template-columns:1fr;overflow:visible}
+  .assist-view.active .phase-rail,.assist-view.active .script-panel,.assist-view.active .note-column{overflow:visible}
+  .deal-header{position:sticky;top:76px}
+  .deal-header-meta{max-height:44px;overflow:hidden}
+  .note-column{border-left:0;border-top:1px solid var(--line)}
+  .meeting-note{position:static}
+}
