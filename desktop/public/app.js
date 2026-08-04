@@ -21,7 +21,7 @@ const api=async(url,options={})=>{
   const response=await fetch(url,{headers:{'content-type':'application/json'},...options});
   const contentType=response.headers.get('content-type')||'';
   if(!contentType.includes('application/json')){
-    if(response.status===404&&url.startsWith('/api/sales/')) throw new Error('アプリの再起動が必要です。HD統合システムを一度終了して、もう一度起動してください。');
+    if(response.status===404&&url.startsWith('/api/')) throw new Error('アプリの再起動が必要です。HD統合システムを一度終了して、もう一度起動してください。');
     throw new Error(`サーバーから正しい応答を受け取れませんでした（${response.status}）`);
   }
   const data=await response.json();
