@@ -196,8 +196,29 @@ function dealActions(deal){
   add('案件情報を見る','secondary',()=>showDealDetail(deal.dealId));
   if(deal.preparationId)add('案件情報を編集','secondary',()=>editDeal(deal.dealId));
   if(deal.finishedAt)add('結果と振り返りを見る','secondary',()=>{show('results');showResultDetail(deal.dealId)});
+  add('削除','danger',()=>confirmDeleteDeal(deal));
   return el('div',{class:'deal-actions-row'},buttons);
 }
+let pendingDeleteDeal=null;
+function confirmDeleteDeal(deal){
+  // 一覧が古いままでも、開いている商談の案件は削除させない
+  const openDealId=currentSession?.deal_id||'';
+  if(currentSession&&((deal.meetingId&&deal.meetingId===currentSession.id)||(openDealId&&deal.dealId===openDealId)))return toast('進行中の商談です。中断または終了してから削除してください');
+  pendingDeleteDeal=deal;
+  $('#delete-deal-target').textContent=[deal.storeName||'店舗名未入力',deal.ownerName&&`${deal.ownerName}様`].filter(Boolean).join('／');
+  $('#delete-deal-detail').textContent=deal.meetingId?`この案件の商談記録（メモ・言質・アウト履歴）もあわせて削除されます。ステータス：${deal.status}`:`まだ商談を開始していない案件です。ステータス：${deal.status}`;
+  $('#delete-deal-dialog').showModal();
+}
+// method="dialog" のフォーム送信でダイアログは閉じるため、submitで受ける
+$('#delete-deal-form').addEventListener('submit',async event=>{
+  const deal=pendingDeleteDeal;pendingDeleteDeal=null;
+  if(event.submitter?.value!=='delete'||!deal)return;
+  try{
+    const data=await api(`/api/fs/deals/${encodeURIComponent(deal.dealId||deal.meetingId||deal.preparationId)}`,{method:'DELETE'});
+    await Promise.all([loadDeals(),renderResults()]);
+    toast(`「${data.removed.storeName||'店舗名未入力'}」を削除しました`);
+  }catch(error){toast(error.message)}
+});
 function dealCard(deal){
   const head=el('div',{class:'deal-card-head'},[
     el('span',{class:`deal-status status-${deal.status}`,text:deal.status}),
@@ -238,7 +259,9 @@ function resultCard(deal){
   ]);
   const open=el('button',{class:'primary',type:'button',text:'結果と振り返りを見る'});
   open.addEventListener('click',()=>showResultDetail(deal.dealId));
-  return el('article',{class:'deal-card'},[head,fields,el('div',{class:'deal-actions-row'},[open])]);
+  const remove=el('button',{class:'danger',type:'button',text:'削除'});
+  remove.addEventListener('click',()=>confirmDeleteDeal(deal));
+  return el('article',{class:'deal-card'},[head,fields,el('div',{class:'deal-actions-row'},[open,remove])]);
 }
 async function renderResults(){
   const list=$('#result-list');list.textContent='';
@@ -285,11 +308,13 @@ async function openDeal(deal){
     if(deal.preparationId){
       const data=await api(`/api/sales/preparations/${encodeURIComponent(deal.preparationId)}/open`,{method:'POST',body:'{}'});
       await enterSalesSession(data.session);
+      await loadDeals();
       return toast(deal.meetingId?'中断した商談を再開しました':'案件情報とスクリプトを読み込みました');
     }
     if(!deal.meetingId)return toast('この案件には商談準備情報がありません');
     const detail=await api(`/api/fs/deals/${encodeURIComponent(deal.dealId||deal.meetingId)}`);
     await enterSalesSession(detail.session);
+    await loadDeals();
     toast('商談を再開しました');
   }catch(error){toast(error.message)}
 }
