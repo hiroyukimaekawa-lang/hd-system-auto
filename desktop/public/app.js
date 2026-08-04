@@ -1,4 +1,667 @@
-const messages=document.querySelector('#messages'),form=document.querySelector('#chat'),input=document.querySelector('#input'),send=document.querySelector('#send');
-function add(role,text,links=[]){const article=document.createElement('article');article.className=`message ${role}`;if(role==='assistant'){const img=document.createElement('img');img.src='/assistant-icon.png';article.append(img)}const bubble=document.createElement('div');bubble.className='bubble';bubble.textContent=text;for(const link of links){bubble.append(document.createElement('br'));const a=document.createElement('a');a.href=link.url;a.target='_blank';a.rel='noreferrer';a.textContent=link.label;bubble.append(a)}article.append(bubble);messages.append(article);messages.scrollTop=messages.scrollHeight;return article}
-async function ask(text){if(!text.trim())return;add('user',text);input.value='';send.disabled=true;const loading=add('assistant','考えています…');loading.classList.add('typing');try{const response=await fetch('/api/chat',{method:'POST',headers:{'content-type':'application/json'},body:JSON.stringify({message:text})});const data=await response.json();loading.remove();add('assistant',data.text||'応答がありません。',data.links||[])}catch(error){loading.remove();add('assistant',`接続エラーです。\n${error.message}`)}finally{send.disabled=false;input.focus()}}
-form.addEventListener('submit',event=>{event.preventDefault();ask(input.value)});input.addEventListener('keydown',event=>{if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();form.requestSubmit()}});document.addEventListener('click',event=>{const prompt=event.target.dataset?.prompt;if(prompt)ask(prompt)});document.querySelector('#help').addEventListener('click',()=>ask('できること'));
+const $=selector=>document.querySelector(selector), $$=selector=>[...document.querySelectorAll(selector)];
+let config={phases:[],objections:[]}, catalog={departments:[],scripts:[],applicationGuide:null}, selectedDepartment='hd', selectedScript='hd-new-ap-20260725', currentSession=null, currentPhase=null, currentSuggestion=null, activePreparation=null, activeDeal=null, editingDealId=null, deals=[], renamingScriptId=null, saveTimer=null, applicationItem=1;
+const ACTIVE_MEETING_KEY='hdActiveMeetingId';
+const storage={
+  get(key){try{return localStorage.getItem(key)||''}catch{return ''}},
+  set(key,value){try{if(value)localStorage.setItem(key,value);else localStorage.removeItem(key)}catch{}}
+};
+// 店舗名・オーナー名・メモなど利用者入力はすべてDOM APIで組み立てる（innerHTMLを使わない）
+function el(tag,props={},children=[]){
+  const node=document.createElement(tag);
+  for(const [key,value] of Object.entries(props)){
+    if(key==='class')node.className=value;
+    else if(key==='text')node.textContent=value;
+    else if(key==='dataset')Object.assign(node.dataset,value);
+    else if(value!==undefined&&value!==null&&value!==false)node.setAttribute(key,value===true?'':value);
+  }
+  for(const child of [].concat(children))if(child)node.append(child);
+  return node;
+}
+const api=async(url,options={})=>{
+  const response=await fetch(url,{headers:{'content-type':'application/json'},...options});
+  const contentType=response.headers.get('content-type')||'';
+  if(!contentType.includes('application/json')){
+    if(response.status===404&&url.startsWith('/api/sales/')) throw new Error('アプリの再起動が必要です。HD統合システムを一度終了して、もう一度起動してください。');
+    throw new Error(`サーバーから正しい応答を受け取れませんでした（${response.status}）`);
+  }
+  const data=await response.json();
+  if(!response.ok)throw new Error(data.text||'処理に失敗しました');
+  return data;
+};
+let toastTimer;
+const toast=text=>{const el=$('#toast');el.textContent=text;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),text.length>35?6500:2400)};
+FsSidebar.render($('#fs-sidebar'));
+FsSidebar.mark('deals');
+function show(view){$$('.view').forEach(node=>node.classList.toggle('active',node.id===`view-${view}`));FsSidebar.mark(view);$('#user-menu').open=false;window.scrollTo(0,0)}
+document.addEventListener('click',event=>{const view=event.target.closest('[data-view]')?.dataset.view;if(view)show(view)});
+const phaseLabelOf=id=>config.phases.find(phase=>phase.id===id)?.name||'';
+function phaseById(id){return config.phases.find(phase=>phase.id===id)}
+async function loadScriptPhases(id){
+  const data=await api(`/api/sales/config?talkScriptId=${encodeURIComponent(id||'hd-new-ap-20260725')}`);
+  config={...config,phases:data.phases,objections:data.objections||config.objections};
+  return config.phases;
+}
+function parseIsTemplate(text){
+  const source=String(text||'').replaceAll('\r',''),lines=source.split('\n').map(line=>line.trim()).filter(line=>line&&!/^-{3,}$/.test(line));
+  const labels=['店舗名','住所','オーナー','店舗番号','携帯','対象商材','トーク詳細','オーナーの反応','アポ獲得に至った経緯','懸念点','備考'];
+  const values={};let current='';
+  for(const line of lines){
+    const match=line.match(/^([^:：]+)[:：]\s*(.*)$/),label=match?.[1]?.trim();
+    if(match&&labels.includes(label)){current=label;values[label]=[values[label],match[2].trim()].filter(Boolean).join('\n');continue}
+    if(current)values[current]=[values[current],line].filter(Boolean).join('\n');
+  }
+  const reaction=source.match(/オーナーの反応\s*[:：]\s*([^\n]+)/)?.[1]?.trim()||values['オーナーの反応']||'';
+  const appointment=source.match(/アポ獲得に至った経緯\s*[:：]\s*([^\n]+)/)?.[1]?.trim()||values['アポ獲得に至った経緯']||'';
+  const questions=lines.filter(line=>/[？?]/.test(line)).join('、');
+  let temperature='不明：IS段階では判断できない';
+  if(/作ってほしい|ぜひ|是非|興味あり|詳しく/.test(reaction))temperature='高い：作りたい・詳しく聞きたい';
+  else if(/半信半疑|条件|無料なら|本当|疑/.test(`${reaction} ${questions}`))temperature='中：無料なら興味あり・条件次第';
+  else if(/興味なし|不要|断り|いらない/.test(reaction))temperature='低い：話だけ聞く・必要性は未認識';
+  const issueParts=[];
+  if(questions)issueParts.push(questions);
+  if(values['懸念点']&&!/^(なし|特になし)$/.test(values['懸念点']))issueParts.push(values['懸念点']);
+  const issueText=issueParts.join('\n')||'IS段階で明確な課題は未確認';
+  const hooks=[];
+  if(/無料|費用|本当/.test(source))hooks.push('無料になる仕組みと、後から発生する費用の有無を明確に説明する');
+  if(/モデル店舗/.test(source))hooks.push('モデル店舗として制作する意味と制作品質を具体的に見せる');
+  if(/エネパル|電気/.test(source))hooks.push('HPへの仮合意を取ってから、エネパルが無料制作条件であることを説明する');
+  if(/カード/.test(source))hooks.push('カードはHP・エネパルとは別契約で、任意であることを明確にする');
+  const isNotes=[values['備考'],values['懸念点']&&`懸念：${values['懸念点']}`,reaction&&`オーナーの反応：${reaction}`].filter(Boolean).join('\n');
+  return {customerName:values['店舗名']||'',address:values['住所']||'',ownerName:(values['オーナー']||'').replace(/(?:\s*様)+\s*$/,'').trim(),storePhone:values['店舗番号']||'',mobile:values['携帯']||'',targetProducts:values['対象商材']||'',talkDetails:values['トーク詳細']||'',reaction,appointment,appointmentBackground:appointment,isNotes,concerns:values['懸念点']||'',otherNotes:values['備考']||'',temperature,temperatureReason:reaction||questions||'IS情報から自動判定',issues:issueText,hookPoints:hooks.join('\n')||'商談冒頭でHPへの印象と今後の展望を確認する',handoff:source};
+}
+const PREP_FILLABLE=['customerName','address','ownerName','storePhone','mobile','targetProducts','talkDetails','concerns','otherNotes','temperature','temperatureReason','issues','hookPoints','isNotes','appointmentBackground','handoff'];
+function applyIsTemplate(text){
+  const form=$('#preparation-form'),data=parseIsTemplate(text);
+  // 解析結果は空欄だけを埋め、担当者が直した内容は上書きしない
+  for(const name of PREP_FILLABLE)if(form.elements[name]&&(!form.elements[name].value.trim()||name==='handoff'))form.elements[name].value=data[name]||'';
+  if(form.elements.appointmentPattern)form.elements.appointmentPattern.value=/台本通り/.test(data.appointment)?'HP無料制作の案内として取得':/詳細|ほとんど/.test(data.appointment)?'詳細をほとんど伝えていない':'';
+  $('#analysis-store').textContent=data.customerName||'未取得';$('#analysis-owner').textContent=data.ownerName?`${data.ownerName}様`:'未取得';$('#analysis-products').textContent=data.targetProducts||'未取得';$('#analysis-temperature').textContent=data.temperature;$('#analysis-temperature-reason').textContent=data.temperatureReason;$('#analysis-issues').textContent=data.issues;$('#analysis-hooks').textContent=data.hookPoints;$('#analysis-status').textContent='解析済み';$('#handoff-analysis').hidden=false;
+  return data;
+}
+function formatScriptText(text){
+  const blocks=String(text||'').split(/\n\s*\n/).map(value=>value.trim()).filter(Boolean),paragraphs=[];let current='';
+  const special=value=>/^【.+】$/.test(value)||/^[①②③④⑤⑥⑦⑧]\s/.test(value)||/^https?:\/\//.test(value)||/^(回答後|追加後|受信確認後|最終確認後|続けて)[：:]?$/.test(value);
+  const flush=()=>{if(current){paragraphs.push(current);current=''}};
+  for(const block of blocks){
+    if(special(block)){flush();paragraphs.push(block);continue}
+    if(!current){current=block;continue}
+    if(current.length+block.length>190||/[？?]$/.test(current)||/^「/.test(block)){flush();current=block;continue}
+    current+=block;
+  }
+  flush();return paragraphs.join('\n\n');
+}
+const statusLabel=status=>({published:'公開中',preparing:'準備中',unregistered:'未登録',draft:'下書き',review:'レビュー待ち',approved:'承認済み',stopped:'停止中',retired:'廃止'}[status]||status);
+function renderCatalog(){
+  $('#admin-department-filter').innerHTML='<option value="hd">HD事業部</option>';$('#admin-department-filter').value='hd';
+  renderAdminScripts();
+}
+function scriptCard(item,admin=false){
+  const department=catalog.departments.find(value=>value.id===item.department_id);
+  return `<article class="script-card"><header><span>${department?.name||item.department_id}</span><em class="status ${item.status}">${statusLabel(item.status)}</em></header><h2>${item.name}</h2><p>${item.products.join('＋')||'商材未登録'}</p><dl><div><dt>対象顧客</dt><dd>${item.customer_type||'—'}</dd></div><div><dt>バージョン</dt><dd>${item.version||'—'}</dd></div><div><dt>最終更新日</dt><dd>${item.updated_at?.slice(0,10)||'—'}</dd></div><div><dt>フェーズ数</dt><dd>${item.phase_count||0}</dd></div><div><dt>使用回数</dt><dd>${item.use_count||0}</dd></div></dl><footer>${admin?`<button class="secondary" data-script-preview="${item.id}">確認</button><button class="secondary" data-script-rename="${item.id}">タイトル編集</button><button class="primary" data-script-edit="${item.id}" ${item.status==='unregistered'?'disabled':''}>内容編集</button>`:`<button class="secondary" data-script-preview="${item.id}">内容確認</button><button class="primary" data-script-start="${item.id}" ${item.status!=='published'?'disabled':''}>${item.status==='published'?'商談を開始':'利用できません'}</button>`}</footer></article>`;
+}
+function bindScriptButtons(){
+  $$('[data-script-start]').forEach(button=>button.addEventListener('click',()=>selectTalkScript(button.dataset.scriptStart)));
+  $$('[data-script-preview]').forEach(button=>button.addEventListener('click',()=>openScriptPreview(button.dataset.scriptPreview)));
+  $$('[data-script-rename]').forEach(button=>button.addEventListener('click',()=>openRenameScript(button.dataset.scriptRename)));
+  $$('[data-script-edit]').forEach(button=>button.addEventListener('click',async()=>{const script=catalog.scripts.find(item=>item.id===button.dataset.scriptEdit);await loadScriptPhases(button.dataset.scriptEdit);renderPhases();$('#phase-editor-title').textContent=`${script?.name||'トークスクリプト'}・フェーズ編集`;$('#phase-editor').hidden=false;$('#phase-editor').scrollIntoView({behavior:'smooth'});editPhase(config.phases[0]?.id)}));
+}
+function openRenameScript(id){
+  const script=catalog.scripts.find(item=>item.id===id);if(!script)return;
+  renamingScriptId=id;$('#rename-script-name').value=script.name;$('#rename-script-dialog').showModal();$('#rename-script-name').focus();
+}
+async function openScriptPreview(id,phaseId){
+  const item=catalog.scripts.find(value=>value.id===id),department=catalog.departments.find(value=>value.id===item?.department_id);
+  if(!item)return;
+  await loadScriptPhases(id);
+  $('#preview-department').textContent=department?.name||'HD事業部';$('#preview-script-name').textContent=item.name;$('#preview-script-meta').textContent=`${item.products.join('＋')||'商材未登録'}｜${item.version||'バージョン未登録'}｜${statusLabel(item.status)}`;
+  const available=item.phase_count>0;
+  $('#preview-empty').hidden=available;$('#preview-content').hidden=!available;
+  if(!available)$('#preview-empty').innerHTML=`<b>${statusLabel(item.status)}</b><p>このトークスクリプトには、まだ閲覧できるフェーズが登録されていません。</p>`;
+  if(available){$('#preview-phase-list').innerHTML=config.phases.map(phase=>`<button data-preview-phase="${phase.id}"><span>${phase.group_name}</span>${phase.name}</button>`).join('');$$('[data-preview-phase]').forEach(button=>button.addEventListener('click',()=>renderPreviewPhase(button.dataset.previewPhase)));renderPreviewPhase(phaseId&&phaseById(phaseId)?phaseId:config.phases[0].id)}
+  $('#script-preview-dialog').showModal();
+}
+function renderPreviewPhase(id){
+  const phase=phaseById(id);if(!phase)return;
+  $$('[data-preview-phase]').forEach(button=>button.classList.toggle('active',button.dataset.previewPhase===id));
+  $('#preview-phase-number').textContent=`PHASE ${phase.group_name}`;$('#preview-phase-name').textContent=phase.name;$('#preview-goal').textContent=phase.goal;$('#preview-script-body').textContent=formatScriptText(phase.base_script);$('#preview-checks').innerHTML=phase.required_questions.map(item=>`<li>${item}</li>`).join('');$('#preview-transition').textContent=phase.transition_conditions;$('#preview-prohibited').innerHTML=phase.prohibited_phrases.map(item=>`<span>${item}</span>`).join('');$('#preview-prohibited-box').hidden=!phase.prohibited_phrases.length;
+  const guide=catalog.applicationGuide,showGuide=/申込書/.test(phase.name);$('#preview-application-guide').hidden=!showGuide;
+  if(showGuide&&guide){const variant=guide.variants.enepal;$('#preview-application-guide').innerHTML=`<span class="eyebrow">APPLICATION GUIDE</span><h2>申込書読み合わせガイド</h2><p>商談画面では、申込書の種類を選び、1項目ずつ大きく表示できます。</p>${guide.sections.map(item=>`<details><summary><b>第${item.number}項</b> ${item.title}</summary><p>${applicationText(item.talk,variant)}</p></details>`).join('')}`}
+}
+$('#close-preview').addEventListener('click',()=>$('#script-preview-dialog').close());
+$('#close-rename-script').addEventListener('click',()=>$('#rename-script-dialog').close());
+$('#rename-script-form').addEventListener('submit',async event=>{
+  event.preventDefault();if(!renamingScriptId)return;
+  try{
+    const data=await api(`/api/sales/talk-scripts/${renamingScriptId}`,{method:'PUT',body:JSON.stringify({name:$('#rename-script-name').value,actor:'管理者'})});
+    catalog.scripts=catalog.scripts.map(item=>item.id===renamingScriptId?data.script:item);
+    renderAdminScripts();renderHomeTemplates();renderPreparationScriptSelector();
+    $('#rename-script-dialog').close();toast('トークスクリプト名を保存しました');
+  }catch(error){toast(error.message)}
+});
+$('#open-create-script').addEventListener('click',()=>{$('#create-script-form').reset();$('#create-script-form').elements.customerType.value='店舗オーナー・小規模事業者';$('#create-script-dialog').showModal();$('#create-script-form').elements.name.focus()});
+$('#close-create-script').addEventListener('click',()=>$('#create-script-dialog').close());
+$('#create-script-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  try{
+    const body=Object.fromEntries(new FormData(event.currentTarget));body.actor='管理者';
+    const data=await api('/api/sales/talk-scripts',{method:'POST',body:JSON.stringify(body)});
+    catalog.scripts.push(data.script);selectedScript=data.script.id;
+    renderAdminScripts();renderHomeTemplates();renderPreparationScriptSelector();
+    $('#create-script-dialog').close();toast('トークスクリプトを追加しました');
+  }catch(error){toast(error.message)}
+});
+async function selectTalkScript(id){
+  const script=catalog.scripts.find(item=>item.id===id);if(!script||script.status!=='published')return;
+  await loadScriptPhases(id);renderPhases();
+  selectedScript=id;selectedDepartment=script.department_id;
+  const form=$('#preparation-form');form.elements.departmentId.value=selectedDepartment;form.elements.talkScriptId.value=id;
+  $('#preparation-script-select').value=id;renderPreparationScriptSummary();show('preparation');
+}
+function renderAdminScripts(){
+  const department=$('#admin-department-filter').value,status=$('#admin-status-filter').value;
+  $('#admin-script-cards').innerHTML=catalog.scripts.filter(item=>(!department||item.department_id===department)&&(!status||item.status===status)).map(item=>scriptCard(item,true)).join('')||'<p class="muted">該当するスクリプトはありません。</p>';bindScriptButtons();
+}
+function renderHomeTemplates(){
+  const published=catalog.scripts.filter(item=>item.department_id==='hd'&&item.status==='published');
+  $('#published-script-count').textContent=`${published.length}件`;$('#published-script-summary').textContent=published.map(item=>item.name).join('・');
+  $('#home-template-list').innerHTML=published.map(item=>`<article><div class="template-icon">▤</div><div><span>HD事業部・正式テンプレート</span><h3>${item.name}</h3><p>${item.products.join('＋')}｜${item.customer_type}</p><small>ISアポ基準：HP無料制作の案内として取得</small></div><dl><div><dt>バージョン</dt><dd>${item.version}</dd></div><div><dt>フェーズ</dt><dd>${item.phase_count}</dd></div><div><dt>状態</dt><dd>${statusLabel(item.status)}</dd></div></dl><div class="template-actions"><button class="secondary" data-script-preview="${item.id}">内容を見る</button><button class="primary" data-script-start="${item.id}">このトークで準備</button></div></article>`).join('');
+  bindScriptButtons();
+}
+function renderPreparationScriptSelector(){
+  const scripts=catalog.scripts.filter(item=>item.department_id==='hd'&&item.status==='published'),select=$('#preparation-script-select');
+  select.innerHTML=scripts.map(item=>`<option value="${item.id}">${item.name}｜${item.version||'バージョン未登録'}</option>`).join('');
+  if(scripts.some(item=>item.id===selectedScript))select.value=selectedScript;
+  else if(scripts[0])selectedScript=scripts[0].id;
+  renderPreparationScriptSummary();
+}
+async function renderPreparationScriptSummary(){
+  const id=$('#preparation-script-select').value,script=catalog.scripts.find(item=>item.id===id);
+  if(!script){$('#preparation-script-name').textContent='利用できるスクリプトがありません';$('#preparation-script-meta').textContent='—';$('#preparation-script-phases').innerHTML='';return}
+  await loadScriptPhases(id);
+  selectedScript=id;$('#preparation-form').elements.talkScriptId.value=id;$('#preparation-script-name').textContent=script.name;$('#preparation-script-meta').textContent=`${script.products.join('＋')||'商材未登録'}｜${script.customer_type||'対象未登録'}｜${script.phase_count}フェーズ`;
+  $('#preparation-script-phases').innerHTML=config.phases.map(phase=>`<button type="button" data-preparation-phase="${phase.id}"><span>${phase.group_name}</span>${phase.name}</button>`).join('');
+  $$('[data-preparation-phase]').forEach(button=>button.addEventListener('click',()=>openScriptPreview(id,button.dataset.preparationPhase)));
+}
+const dealDate=(value,fallback='—')=>{
+  const raw=String(value||'').trim();if(!raw)return fallback;
+  const date=new Date(raw.length<=16&&raw.includes('T')?`${raw}:00`:raw);
+  return Number.isNaN(date.getTime())?raw:date.toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
+};
+const dealField=(label,value)=>el('div',{class:'deal-field'},[el('small',{text:label}),el('b',{text:String(value||'—').trim()||'—'})]);
+function dealActions(deal){
+  const buttons=[];
+  const add=(label,className,handler)=>{const button=el('button',{class:className,type:'button',text:label});button.addEventListener('click',handler);buttons.push(button)};
+  if(deal.meetingId&&!deal.finishedAt)add('商談再開','primary',()=>openDeal(deal));
+  else if(!deal.finishedAt)add('商談開始','primary',()=>openDeal(deal));
+  add('案件情報を見る','secondary',()=>showDealDetail(deal.dealId));
+  if(deal.preparationId)add('案件情報を編集','secondary',()=>editDeal(deal.dealId));
+  if(deal.finishedAt)add('結果と振り返りを見る','secondary',()=>{show('results');showResultDetail(deal.dealId)});
+  return el('div',{class:'deal-actions-row'},buttons);
+}
+function dealCard(deal){
+  const head=el('div',{class:'deal-card-head'},[
+    el('span',{class:`deal-status status-${deal.status}`,text:deal.status}),
+    el('h3',{text:deal.storeName||'店舗名未入力'}),
+    el('p',{text:[deal.ownerName&&`${deal.ownerName}様`,deal.products].filter(Boolean).join('｜')||'オーナー名未入力'})
+  ]);
+  const fields=el('div',{class:'deal-fields'},[
+    dealField('商談日時',dealDate(deal.meetingAt,'日程未定')),
+    dealField('商談担当者',deal.staffId),
+    dealField('IS担当者',deal.isPerson),
+    dealField('現在フェーズ',deal.currentPhaseName||(deal.meetingId?'未開始':'商談前')),
+    dealField('次回アクション',[deal.nextAction,dealDate(deal.nextActionAt,'')].filter(Boolean).join('｜')),
+    dealField('最終更新',dealDate(deal.updatedAt,'—'))
+  ]);
+  return el('article',{class:'deal-card'},[head,fields,dealActions(deal)]);
+}
+function renderDeals(){
+  const status=$('#deal-status-filter').value,keyword=$('#deal-search').value.trim();
+  const items=deals.filter(deal=>(!status||deal.status===status)&&(!keyword||`${deal.storeName}${deal.ownerName}`.includes(keyword)));
+  const list=$('#deal-list');list.textContent='';
+  $('#active-deal-count').textContent=`${deals.length}件`;
+  if(!items.length){list.append(el('div',{class:'empty-state'},[el('b',{text:'該当する案件はありません'}),el('p',{text:'「＋ 商談準備を作成」からISの引き継ぎを登録すると、ここに案件が追加されます。'})]));return}
+  for(const deal of items)list.append(dealCard(deal));
+}
+function resultCard(deal){
+  const head=el('div',{class:'deal-card-head'},[
+    el('span',{class:`deal-status status-${deal.status}`,text:deal.status}),
+    el('h3',{text:deal.storeName||'店舗名未入力'}),
+    el('p',{text:[deal.ownerName&&`${deal.ownerName}様`,deal.staffId&&`担当 ${deal.staffId}`].filter(Boolean).join('｜')||'—'})
+  ]);
+  const fields=el('div',{class:'deal-fields'},[
+    dealField('商談日',dealDate(deal.finishedAt||deal.startedAt,'—')),
+    dealField('商談結果',deal.result),
+    dealField('ヨミ',deal.forecast),
+    dealField('獲得商材',deal.acquiredProducts),
+    dealField('次回アクション',[deal.nextAction,dealDate(deal.nextActionAt,'')].filter(Boolean).join('｜')),
+    dealField('最終更新',dealDate(deal.updatedAt,'—'))
+  ]);
+  const open=el('button',{class:'primary',type:'button',text:'結果と振り返りを見る'});
+  open.addEventListener('click',()=>showResultDetail(deal.dealId));
+  return el('article',{class:'deal-card'},[head,fields,el('div',{class:'deal-actions-row'},[open])]);
+}
+async function renderResults(){
+  const list=$('#result-list');list.textContent='';
+  const finished=(await api('/api/fs/deals?scope=finished')).deals;
+  if(!finished.length){list.append(el('div',{class:'empty-state'},[el('b',{text:'終了した商談はまだありません'}),el('p',{text:'商談を終了すると、結果・メモ・振り返りがここに残ります。'})]));return}
+  for(const deal of finished)list.append(resultCard(deal));
+}
+function preparationFocus(item){
+  const text=[item.context_data.issues,item.context_data.hookPoints,item.handoff,item.context_data.appointmentPattern].join(' ');
+  const results=[];
+  const add=(id,reason)=>{if(!results.some(value=>value.id===id))results.push({id,reason})};
+  if(/詳しく|不明|ほとんど|認識/.test(text))add('agenda','ISとの認識差をなくし、今日の進め方をそろえる');
+  if(/不要|SNS|Google|必要性/.test(text))add('hp_impression','HPが不要と感じる背景を切り分ける');
+  if(/売上|集客|客数|採用|人手|今後/.test(text))add('future','今後実現したい状態を具体化する');
+  if(/課題|背景|独立|店舗/.test(text))add('hearing','店舗の背景と未解決課題を深掘りする');
+  if(/予約|導線|公式|信用|情報|採用|集客/.test(text))add('hp_role','ヒアリング内容から顧客専用のHPの役割を提示する');
+  if(/品質|デザイン|事例/.test(text))add('examples','制作事例を見せて品質への肯定を取る');
+  if(/条件|無料|作りたい|興味/.test(text))add('test_closing','条件説明前にHP制作への仮合意を確認する');
+  if(/電気|料金|エネパル/.test(text))add('free_conditions','無料制作と電気切り替えの関係を正確に説明する');
+  if(!results.length){add('hp_impression','HPへの現在の印象を確認する');add('future','今後のお店の方向性を確認する');add('hp_role','この店舗に合うHPの役割を作る')}
+  return results.slice(0,4);
+}
+async function showDealDetail(dealId){
+  let detail;
+  try{detail=await api(`/api/fs/deals/${encodeURIComponent(dealId)}`)}catch(error){return toast(error.message)}
+  activeDeal=detail.deal;
+  activePreparation=detail.preparation||{id:'',talk_script_id:detail.deal.talkScriptId,context_data:{},customer_name:detail.deal.storeName,owner_name:detail.deal.ownerName,staff_id:detail.deal.staffId,handoff:detail.deal.handoff,concerns:detail.deal.concerns,next_action:detail.deal.nextAction,next_action_at:detail.deal.nextActionAt,business_type:''};
+  await loadScriptPhases(activePreparation.talk_script_id||detail.deal.talkScriptId);
+  FsDealHeader.render({meta:$('#prep-detail-header-meta'),links:$('#prep-detail-header-links'),notes:$('#prep-detail-header-notes')},detail.deal);
+  const context={...activePreparation.context_data,...detail.deal},focus=preparationFocus({context_data:{issues:detail.deal.issues,hookPoints:detail.deal.hookPoints,appointmentPattern:detail.deal.appointmentPattern},handoff:detail.deal.handoff});
+  $('#prep-open-session').textContent=detail.deal.meetingId&&!detail.deal.finishedAt?'この案件で商談を再開 →':'この案件で商談を開始 →';
+  $('#prep-open-session').hidden=Boolean(detail.deal.finishedAt);
+  $('#prep-edit-info').hidden=!detail.preparation;
+  $('#prep-detail-name').textContent=activePreparation.customer_name||'店舗名未入力';$('#prep-detail-meta').textContent=[activePreparation.owner_name&&`${activePreparation.owner_name}様`,activePreparation.business_type,activePreparation.staff_id&&`担当 ${activePreparation.staff_id}`,context.meetingAt&&new Date(context.meetingAt).toLocaleString('ja-JP')].filter(Boolean).join('｜');
+  const meeting=context.meetingAt?new Date(context.meetingAt):null;$('#prep-detail-meeting').textContent=meeting?meeting.toLocaleString('ja-JP',{year:'numeric',month:'long',day:'numeric',weekday:'short',hour:'2-digit',minute:'2-digit'}):'日程未設定';if(meeting){const hours=(meeting-Date.now())/36e5;$('#prep-detail-countdown').textContent=hours>=0?(hours<24?`あと約${Math.max(1,Math.round(hours))}時間`:`あと${Math.ceil(hours/24)}日`):`${Math.ceil(Math.abs(hours)/24)}日前`}else $('#prep-detail-countdown').textContent='—';
+  $('#prep-next-action').value=activePreparation.next_action||'';$('#prep-next-action-at').value=activePreparation.next_action_at||'';
+  $('#prep-detail-temperature').textContent=context.temperature||'未確認';$('#prep-detail-temperature-reason').textContent=context.temperatureReason||'温度感の根拠は未入力です。';$('#prep-detail-issues').textContent=context.issues||activePreparation.concerns||'課題は未入力です。';$('#prep-detail-hooks').textContent=context.hookPoints||'刺しポイントは未入力です。商談中のヒアリングで確認してください。';$('#prep-detail-handoff').textContent=activePreparation.handoff||'ISからの引き継ぎはありません。';
+  $('#prep-focus-phases').innerHTML=focus.map(({id,reason})=>{const phase=phaseById(id);return `<button data-prep-focus="${id}"><span>${phase?.name||id}</span><b>${reason}</b><small>スクリプトを確認 →</small></button>`}).join('');
+  $$('[data-prep-focus]').forEach(button=>button.addEventListener('click',()=>{$('#preparation-dialog').close();openScriptPreview(activePreparation.talk_script_id,button.dataset.prepFocus)}));
+  $('#preparation-dialog').showModal();
+}
+async function openDeal(deal){
+  try{
+    if(deal.preparationId){
+      const data=await api(`/api/sales/preparations/${encodeURIComponent(deal.preparationId)}/open`,{method:'POST',body:'{}'});
+      await enterSalesSession(data.session);
+      return toast(deal.meetingId?'中断した商談を再開しました':'案件情報とスクリプトを読み込みました');
+    }
+    if(!deal.meetingId)return toast('この案件には商談準備情報がありません');
+    const detail=await api(`/api/fs/deals/${encodeURIComponent(deal.dealId||deal.meetingId)}`);
+    await enterSalesSession(detail.session);
+    toast('商談を再開しました');
+  }catch(error){toast(error.message)}
+}
+function fillPreparationForm(deal){
+  const form=$('#preparation-form');form.reset();
+  form.elements.departmentId.value='hd';form.elements.talkScriptId.value=deal.talkScriptId||selectedScript;
+  const values={customerName:deal.storeName,ownerName:deal.ownerName,staffId:deal.staffId,isPerson:deal.isPerson,meetingAt:deal.meetingAt,targetProducts:deal.products,isNotes:deal.isNotes,address:deal.address,storePhone:deal.storePhone,mobile:deal.mobile,websiteUrl:deal.websiteUrl,instagramUrl:deal.instagramUrl,googleMapsUrl:deal.googleMapsUrl,existingHp:deal.existingHp,decisionMaker:deal.decisionMaker,temperature:deal.temperature,temperatureReason:deal.temperatureReason,issues:deal.issues,hookPoints:deal.hookPoints,concerns:deal.concerns,appointmentBackground:deal.appointmentBackground,appointmentPattern:deal.appointmentPattern,handoff:deal.handoff};
+  for(const [name,value] of Object.entries(values))if(form.elements[name])form.elements[name].value=value||'';
+  const links=Array.isArray(deal.otherLinks)?deal.otherLinks:[];
+  if(form.elements.snsUrl)form.elements.snsUrl.value=links.find(item=>item.label==='その他SNS')?.url||'';
+  if(form.elements.referenceUrl)form.elements.referenceUrl.value=links.find(item=>item.label==='参考資料')?.url||'';
+  $('#handoff-analysis').hidden=true;
+}
+async function editDeal(dealId){
+  try{
+    const detail=await api(`/api/fs/deals/${encodeURIComponent(dealId)}`);
+    if(!detail.preparation)return toast('この案件は商談準備情報を持っていないため編集できません');
+    $('#preparation-dialog').close();
+    editingDealId=detail.deal.dealId;
+    fillPreparationForm(detail.deal);
+    $('#prep-edit-target').textContent=detail.deal.storeName||'店舗名未入力';
+    $('#prep-edit-banner').hidden=false;
+    $('#save-preparation').textContent='変更を保存';
+    show('preparation');
+  }catch(error){toast(error.message)}
+}
+function resetPreparationForm(){
+  const form=$('#preparation-form');form.reset();
+  form.elements.departmentId.value='hd';form.elements.talkScriptId.value=selectedScript;
+  editingDealId=null;$('#prep-edit-banner').hidden=true;$('#save-preparation').textContent='案件として保存';$('#handoff-analysis').hidden=true;
+}
+$('#cancel-prep-edit').addEventListener('click',resetPreparationForm);
+function resultSection(title,value){
+  return el('section',{class:'result-block'},[el('h3',{text:title}),el('p',{text:String(value||'').trim()||'—'})]);
+}
+async function showResultDetail(dealId){
+  let detail;
+  try{detail=await api(`/api/fs/deals/${encodeURIComponent(dealId)}`)}catch(error){return toast(error.message)}
+  const deal=detail.deal,facts=detail.record?.facts||[];
+  const factText=category=>facts.filter(item=>item.category===category).map(item=>item.value).join('\n');
+  $('#result-detail-name').textContent=deal.storeName||'店舗名未入力';
+  $('#result-detail-meta').textContent=[deal.ownerName&&`${deal.ownerName}様`,deal.staffId&&`担当 ${deal.staffId}`,deal.finishedAt&&`商談日 ${dealDate(deal.finishedAt)}`,deal.status].filter(Boolean).join('｜');
+  FsDealHeader.render({meta:$('#result-detail-header-meta'),links:$('#result-detail-header-links'),notes:$('#result-detail-header-notes')},deal);
+  const body=$('#result-detail-body');body.textContent='';
+  const memos=el('section',{class:'result-block'},[el('h3',{text:'商談メモ'})]);
+  if(detail.memos?.length)for(const memo of detail.memos)memos.append(el('p',{class:'result-memo',text:`${dealDate(memo.created_at)}｜${memo.content}`}));
+  else memos.append(el('p',{text:'メモは記録されていません。'}));
+  body.append(
+    resultSection('ISからの引き継ぎ',deal.handoff),
+    resultSection('商談結果',deal.result),
+    resultSection('ヨミ',deal.forecast),
+    resultSection('制作意思・言質',factText('commitment')),
+    resultSection('提案商材',factText('proposed_products')||deal.products),
+    resultSection('獲得商材',factText('acquired_products')),
+    resultSection('残った懸念',deal.concerns||factText('log')),
+    resultSection('次回アクション',[deal.nextAction,dealDate(deal.nextActionAt,'')].filter(Boolean).join('｜')),
+    memos,
+    resultSection('商談結果メモ',detail.session?.notes),
+    resultSection('担当者の振り返り',deal.reflection)
+  );
+  const handoffButton=el('button',{class:'secondary',type:'button',text:'進捗管理FMTを確認'});
+  handoffButton.addEventListener('click',async()=>{$('#handoff-output').value=await buildHandoffFormat(detail.session,facts);$('#result-dialog').close();$('#handoff-dialog').showModal()});
+  body.append(el('div',{class:'actions'},[handoffButton]));
+  $('#result-dialog').showModal();
+}
+$('#close-result').addEventListener('click',()=>$('#result-dialog').close());
+$('#close-result-bottom').addEventListener('click',()=>$('#result-dialog').close());
+$('#close-preparation').addEventListener('click',()=>$('#preparation-dialog').close());
+$('#prep-open-session').addEventListener('click',()=>{if(activeDeal){$('#preparation-dialog').close();openDeal(activeDeal)}});
+$('#prep-edit-info').addEventListener('click',()=>{if(activeDeal)editDeal(activeDeal.dealId)});
+$('#prep-view-script').addEventListener('click',()=>{if(activePreparation){$('#preparation-dialog').close();openScriptPreview(activePreparation.talk_script_id)}});
+$('#save-next-action').addEventListener('click',async()=>{if(!activePreparation?.id)return toast('この案件は次の動きを保存できません');try{const data=await api(`/api/sales/preparations/${activePreparation.id}`,{method:'PUT',body:JSON.stringify({nextAction:$('#prep-next-action').value,nextActionAt:$('#prep-next-action-at').value,actor:activePreparation.staff_id||'FS'})});activePreparation=data.preparation;toast('次の動きを保存しました');await loadDeals();$('#preparation-dialog').close()}catch(error){toast(error.message)}});
+function renderPhases(){
+  const groups=[...new Set(config.phases.map(phase=>phase.group_name))];
+  $('#phase-list').innerHTML=groups.map(group=>{
+    const phases=config.phases.filter(phase=>phase.group_name===group);
+    const groupName=phases[0]?.name.replace(/^③-\d\s*/,'')||'';
+    if(group==='③') return `<div class="phase-group"><div class="group-title"><span>${group}</span><b>HP興味付け・事例</b></div>${phases.map(phase=>`<button class="subphase" data-phase="${phase.id}"><span>${phase.name.match(/^③-\d/)?.[0]||''}</span><div><b>${phase.name.replace(/^③-\d\s*/,'')}</b></div></button>`).join('')}</div>`;
+    return `<button data-phase="${phases[0].id}"><span>${group}</span><div><b>${groupName}</b><small>${phases[0].goal}</small></div></button>`;
+  }).join('');
+  $('#admin-phase-list').innerHTML=config.phases.map(phase=>`<button type="button" data-admin-phase="${phase.id}"><span>${String(phase.phase_order).padStart(2,'0')}</span>${phase.name}<small>v${phase.version}</small></button>`).join('');
+  $('#return-select').innerHTML=config.phases.map(phase=>`<option value="${phase.id}">${phase.group_name==='③'?phase.name:`${phase.group_name} ${phase.name}`}</option>`).join('');
+  $$('[data-phase]').forEach(button=>button.addEventListener('click',()=>selectPhase(button.dataset.phase)));
+  $$('[data-admin-phase]').forEach(button=>button.addEventListener('click',()=>editPhase(button.dataset.adminPhase)));
+}
+function selectPhase(id){
+  currentPhase=phaseById(id); if(!currentPhase)return;
+  $$('[data-phase]').forEach(button=>button.classList.toggle('active',button.dataset.phase===id));
+  const owner=currentSession?.owner_name||'〇〇', hpRole=currentSession?.context_data?.hpRole||'　　　　　　　　　　　　　　';
+  const script=formatScriptText(currentPhase.base_script.replaceAll('〇〇様',`${owner}様`).replaceAll('{{hpRole}}',hpRole));
+  $('#phase-label').textContent=`PHASE ${currentPhase.group_name}${currentPhase.group_name==='③'?` / STEP ${currentPhase.name.match(/\d/)?.[0]||''}`:''}`;$('#phase-name').textContent=currentPhase.name;$('#phase-goal').textContent=currentPhase.goal;$('#base-script').textContent=script;
+  const stored=currentSession?.step_state?.[id]||[],checked=Array.isArray(stored)?stored:stored.checked||[],notes=Array.isArray(stored)?{}:stored.notes||{};
+  $('#phase-questions').innerHTML=currentPhase.required_questions.map((item,index)=>{
+    const note=notes[index]||{};
+    return `<li class="question-note"><div class="question-head"><label><input type="checkbox" data-check="${index}" ${checked.includes(index)?'checked':''}><span>${item}</span></label></div><label>回答メモ<textarea rows="2" data-note-field="answer" data-note-index="${index}" placeholder="相手の回答を短く記録">${note.answer||''}</textarea></label><details><summary>詳細を残す（必要な時だけ）</summary><div class="compact-note-flags"><label><input type="checkbox" data-note-field="later" data-note-index="${index}" ${note.later?'checked':''}>後で確認</label><label><input type="checkbox" data-note-field="proposal" data-note-index="${index}" ${note.proposal?'checked':''}>提案に使用</label></div><div class="question-note-grid"><label>相手の発言をそのまま<textarea rows="2" data-note-field="verbatim" data-note-index="${index}">${note.verbatim||''}</textarea></label><label>担当者の補足<textarea rows="2" data-note-field="supplement" data-note-index="${index}">${note.supplement||''}</textarea></label><label>追加で深掘りする質問<textarea rows="2" data-note-field="deepQuestion" data-note-index="${index}">${note.deepQuestion||''}</textarea></label><div class="ai-note-box"><button type="button" data-organize-note="${index}" class="secondary">AIメモ整理</button><label>回答の要約<textarea rows="2" data-note-field="aiSummary" data-note-index="${index}">${note.aiSummary||''}</textarea></label><label>刺しポイント・不足情報<textarea rows="2" data-note-field="aiHint" data-note-index="${index}">${note.aiHint||''}</textarea></label></div></div></details></li>`;
+  }).join('');
+  $('#phase-transition').textContent=currentPhase.transition_conditions;$('#prohibited').innerHTML=currentPhase.prohibited_phrases.map(item=>`<span>${item}</span>`).join('');$('#warning-box').hidden=!currentPhase.prohibited_phrases.length;
+  $('#return-select').value=id;
+  $('#hp-role').value=currentSession?.context_data?.hpRole||'';$('#session-notes').value=currentSession?.notes||'';
+  const rolePhase=['hp_role','hp_explanation','test_closing','lr_09'].includes(id);$('#context-fields').hidden=!rolePhase;$('#context-fields').classList.toggle('highlight-role',rolePhase);
+  renderApplicationGuide();
+  renderReturnRecommendations();
+  $('#objection-select').value=config.objections.find(item=>item.applicable_phase===id)?.id||'other';$('#suggestions').innerHTML='';currentSuggestion=null;
+  if(currentSession){currentSession.current_phase=id;scheduleProgressSave();FsMeetingNote.setPhase(id)}
+}
+function applicationText(value,variant){
+  return String(value||'').replaceAll('{{revisionLimit}}',variant.revisionLimit).replaceAll('{{continuationPeriod}}',variant.continuationPeriod).replaceAll('{{service}}',variant.service).replaceAll('【店舗名】',currentSession?.customer_name||'店舗名');
+}
+function applicationVariantId(){
+  const target=[currentSession?.product_id,currentSession?.context_data?.targetProducts].filter(Boolean).join(' ');
+  return /AMEX|カード|マスター|三井住友/i.test(target)&&!/エネパル/.test(target)?'card':'enepal';
+}
+function renderApplicationGuide(){
+  const guide=catalog.applicationGuide, visible=currentPhase&&(currentPhase.id==='application'||/申込書/.test(currentPhase.name));
+  $('#application-guide').hidden=!visible;
+  if(!visible||!guide)return;
+  const variantSelect=$('#application-variant');
+  if(!variantSelect.options.length)variantSelect.innerHTML=Object.entries(guide.variants).map(([id,item])=>`<option value="${id}">${item.name}</option>`).join('');
+  if(!variantSelect.dataset.selected){variantSelect.value=applicationVariantId();variantSelect.dataset.selected='1'}
+  const variant=guide.variants[variantSelect.value]||guide.variants.enepal;
+  $('#application-items').innerHTML=guide.sections.map(item=>`<button type="button" data-application-item="${item.number}" class="${item.number===applicationItem?'active':''}"><span>${item.number}</span>${item.title}</button>`).join('');
+  const item=guide.sections.find(entry=>entry.number===applicationItem)||guide.sections[0];
+  $('#application-item-detail').innerHTML=`<div class="application-item-title"><span>第${item.number}項</span><h3>${item.title}</h3></div><p class="application-summary">${item.summary}</p><div class="application-talk"><small>このまま話す</small><p>${applicationText(item.talk,variant)}</p></div><div class="application-checks"><small>確認ポイント</small>${item.checks.map(check=>`<label><input type="checkbox"> ${applicationText(check,variant)}</label>`).join('')}</div>`;
+  $('#application-source').href=guide.source.url;
+  $$('[data-application-item]').forEach(button=>button.addEventListener('click',()=>{applicationItem=Number(button.dataset.applicationItem);renderApplicationGuide()}));
+}
+function renderReturnRecommendations(){
+  const map={
+    test_closing:[['future','③-2 今後の展望'],['hearing','③-3 店舗ヒアリング'],['hp_role','③-4 HPの役割決定'],['hp_explanation','③-5 HP説明']],
+    free_conditions:[['free_conditions','④ 無料の仕組み・条件'],['test_closing','③-8 テストクロージング'],['hp_role','③-4 HPの役割決定']],
+    application:[['application','⑤ 申込書の該当項目'],['free_conditions','④ 無料の仕組み・条件']]
+  };
+  const items=map[currentPhase?.id]||[];
+  $('#recommended-returns').innerHTML=items.length?`<b>おすすめの戻り先</b><div>${items.map(([id,label])=>`<button data-recommended="${id}">${label}</button>`).join('')}</div>`:'';
+  $$('[data-recommended]').forEach(button=>button.addEventListener('click',()=>selectPhase(button.dataset.recommended)));
+}
+function editPhase(id){
+  const phase=phaseById(id), form=$('#phase-form');if(!phase)return;
+  $$('[data-admin-phase]').forEach(button=>button.classList.toggle('active',button.dataset.adminPhase===id));
+  form.elements.id.value=phase.id;form.elements.name.value=phase.name;form.elements.goal.value=phase.goal;form.elements.baseScript.value=phase.base_script;form.elements.requiredQuestions.value=phase.required_questions.join('\n');form.elements.transitionConditions.value=phase.transition_conditions;form.elements.prohibitedPhrases.value=phase.prohibited_phrases.join('\n');
+}
+async function loadDeals(){
+  deals=(await api('/api/fs/deals')).deals;
+  renderDeals();
+  return deals;
+}
+async function load(){
+  [config,catalog]=await Promise.all([api('/api/sales/config'),api('/api/sales/catalog')]);renderPhases();renderCatalog();
+  renderHomeTemplates();renderPreparationScriptSelector();
+  $('#objection-select').innerHTML=config.objections.map(item=>`<option value="${item.id}">${item.category} ＞ ${item.subcategory}</option>`).join('');
+  selectPhase('agenda');editPhase('agenda');
+  const [sessionsData]=await Promise.all([api('/api/sales/sessions'),loadDeals(),renderResults()]);
+  const sessions=sessionsData.sessions;
+  $('#today-count').textContent=`${sessions.filter(item=>item.started_at?.slice(0,10)===new Date().toISOString().slice(0,10)).length}件`;
+}
+$('#deal-status-filter').addEventListener('change',renderDeals);
+$('#deal-search').addEventListener('input',renderDeals);
+$('#toggle-script-admin').addEventListener('click',()=>{const panel=$('#script-admin');panel.hidden=!panel.hidden;$('#toggle-script-admin').textContent=panel.hidden?'管理メニューを表示':'管理メニューを隠す'});
+$('#application-variant').addEventListener('change',()=>renderApplicationGuide());
+async function renderDealHeader(){
+  const targets={owner:$('#deal-header-owner'),meta:$('#deal-header-meta'),links:$('#deal-header-links'),notes:$('#deal-header-notes')};
+  if(!currentSession)return FsDealHeader.render(targets,{});
+  try{
+    const detail=await api(`/api/fs/deals/${encodeURIComponent(currentSession.deal_id||currentSession.id)}`);
+    activeDeal=detail.deal;FsDealHeader.render(targets,detail.deal);
+  }catch{
+    const context=currentSession.context_data||{};
+    FsDealHeader.render(targets,{ownerName:currentSession.owner_name,staffId:currentSession.staff_id,handoff:currentSession.handoff,...context,products:context.targetProducts,meetingAt:context.meetingAt});
+  }
+}
+async function enterSalesSession(session){
+  currentSession=session;await loadScriptPhases(currentSession.talk_script_id);renderPhases();const script=catalog.scripts.find(item=>item.id===currentSession.talk_script_id),department=catalog.departments.find(item=>item.id===currentSession.department_id);$('#session-customer').textContent=currentSession.customer_name||'店舗名未入力';$('#session-meta').textContent=[department?.name,script?.name,currentSession.talk_script_version,currentSession.context_data?.appointmentPattern&&`IS：${currentSession.context_data.appointmentPattern}`,currentSession.staff_id&&`担当 ${currentSession.staff_id}`].filter(Boolean).join(' ・ ');selectPhase(phaseById(currentSession.current_phase)?currentSession.current_phase:config.phases[0]?.id);show('assist');loadSessionRecord();loadTalkObjectionNotes();
+  storage.set(ACTIVE_MEETING_KEY,currentSession.id);
+  await Promise.all([renderDealHeader(),FsMeetingNote.open(currentSession.id,currentSession.current_phase)]);
+}
+function analyzeCurrentHandoff(){const text=$('#is-template-paste').value.trim();if(!text)return {};return applyIsTemplate(text)}
+async function savePreparation(){
+  const form=$('#preparation-form');
+  if(!form.reportValidity())return null;
+  analyzeCurrentHandoff();
+  const body=Object.fromEntries(new FormData(form));
+  if(editingDealId){
+    const data=await api(`/api/fs/deals/${encodeURIComponent(editingDealId)}`,{method:'PUT',body:JSON.stringify({...body,actor:body.staffId||'FS'})});
+    return { preparation:data.preparation, edited:true };
+  }
+  return { preparation:(await api('/api/sales/preparations',{method:'POST',body:JSON.stringify(body)})).preparation, edited:false };
+}
+$('#preparation-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  try{
+    const saved=await savePreparation();if(!saved)return;
+    const data=await api(`/api/sales/preparations/${encodeURIComponent(saved.preparation.id)}/open`,{method:'POST',body:'{}'});
+    resetPreparationForm();await loadDeals();
+    await enterSalesSession(data.session);
+    toast('案件を保存して商談を開始しました');
+  }catch(error){toast(error.message)}
+});
+$('#save-preparation').addEventListener('click',async()=>{
+  try{
+    const saved=await savePreparation();if(!saved)return;
+    resetPreparationForm();await loadDeals();
+    toast(saved.edited?'案件情報を更新しました':'案件を各種案件用へ追加しました');
+    show('deals');
+  }catch(error){toast(error.message)}
+});
+$('#analyze-is-handoff').addEventListener('click',()=>{const text=$('#is-template-paste').value.trim();if(!text)return toast('ISからの引き継ぎを貼り付けてください');applyIsTemplate(text);toast('IS引き継ぎを解析し、空欄へ反映しました')});
+$('#is-template-paste').addEventListener('input',()=>{$('#handoff-analysis').hidden=true;$('#analysis-status').textContent='未解析'});
+$('#admin-department-filter').addEventListener('change',renderAdminScripts);$('#admin-status-filter').addEventListener('change',renderAdminScripts);
+$('#preparation-script-select').addEventListener('change',()=>{selectedScript=$('#preparation-script-select').value;$('#preparation-form').elements.talkScriptId.value=selectedScript;renderPreparationScriptSummary()});
+$('#preview-preparation-script').addEventListener('click',()=>openScriptPreview($('#preparation-script-select').value));
+function scheduleProgressSave(){
+  if(!currentSession)return;clearTimeout(saveTimer);saveTimer=setTimeout(saveProgress,350);
+}
+async function saveProgress(){
+  if(!currentSession)return;
+  const body={currentPhase:currentPhase?.id,contextData:{hpRole:$('#hp-role').value},stepState:currentSession.step_state||{},notes:$('#session-notes').value};
+  try{currentSession=(await api(`/api/sales/sessions/${currentSession.id}/progress`,{method:'PUT',body:JSON.stringify(body)})).session}catch(error){toast(error.message)}
+}
+$('#phase-questions').addEventListener('change',event=>{
+  if(!currentSession||!event.target.matches('[data-check],[data-note-field]'))return;
+  storeCurrentQuestionNotes();
+});
+$('#phase-questions').addEventListener('input',event=>{if(currentSession&&event.target.matches('[data-note-field]'))storeCurrentQuestionNotes()});
+$('#phase-questions').addEventListener('click',event=>{
+  const button=event.target.closest('[data-organize-note]');if(!button||!currentSession)return;
+  const index=Number(button.dataset.organizeNote),answer=$(`[data-note-field="answer"][data-note-index="${index}"]`).value.trim(),verbatim=$(`[data-note-field="verbatim"][data-note-index="${index}"]`).value.trim();
+  $(`[data-note-field="aiSummary"][data-note-index="${index}"]`).value=answer||verbatim||'回答がまだ入力されていません';
+  $(`[data-note-field="aiHint"][data-note-index="${index}"]`).value=answer?`提案時に「${answer.slice(0,80)}」を相手の言葉として活用。具体的な理由・時期・優先度が未確認なら追加で聞く。`:'相手の回答を入力すると、刺しポイントと不足情報を整理できます。';
+  storeCurrentQuestionNotes();toast('メモを整理しました。編集して保存できます');
+});
+function storeCurrentQuestionNotes(){
+  if(!currentSession||!currentPhase)return;
+  const previous=currentSession.step_state?.[currentPhase.id],notes=Array.isArray(previous)?{}:{...(previous?.notes||{})};
+  $$('[data-note-field]').forEach(input=>{const index=input.dataset.noteIndex;if(index===undefined)return;notes[index]={...(notes[index]||{}),[input.dataset.noteField]:input.type==='checkbox'?input.checked:input.value}});
+  const checked=$$('#phase-questions [data-check]').filter(input=>input.checked).map(input=>Number(input.dataset.check));
+  currentSession.step_state={...(currentSession.step_state||{}),[currentPhase.id]:{checked,notes}};scheduleProgressSave();
+}
+$('#hp-role').addEventListener('input',()=>{if(!currentSession)return;currentSession.context_data={...(currentSession.context_data||{}),hpRole:$('#hp-role').value};scheduleProgressSave();const role=$('#hp-role').value||'　　　　　　　　　　　　　　';$('#base-script').textContent=formatScriptText(currentPhase.base_script.replaceAll('〇〇様',`${currentSession.owner_name||'〇〇'}様`).replaceAll('{{hpRole}}',role))});
+$('#session-notes').addEventListener('input',scheduleProgressSave);
+$('#previous-step').addEventListener('click',()=>{const index=config.phases.findIndex(phase=>phase.id===currentPhase.id);if(index>0)selectPhase(config.phases[index-1].id)});
+$('#return-step').addEventListener('click',()=>selectPhase($('#return-select').value));
+$('#objection-button').addEventListener('click',()=>{$('#assist-panel').classList.add('attention');$('#customer-statement').focus()});
+$('#next-step').addEventListener('click',()=>{
+  const index=config.phases.findIndex(phase=>phase.id===currentPhase.id);if(index<0||index===config.phases.length-1)return toast('最後のステップです。商談結果を保存してください。');
+  if(currentPhase.id==='test_closing'&&!gateComplete())return openGate();
+  selectPhase(config.phases[index+1].id);
+});
+function gateRequirements(){
+  const state=currentSession?.step_state||{};
+  const checked=id=>Array.isArray(state[id])?state[id]:state[id]?.checked||[];
+  return [
+    ['顧客ごとのHPの役割が決まっている',Boolean(currentSession?.context_data?.hpRole?.trim())],
+    ['顧客がその役割に納得している',checked('hp_role').includes(1)],
+    ['制作品質について肯定が取れている',checked('examples').includes(1)],
+    ['条件に問題がなければ作りたいという意思が取れている',checked('test_closing').includes(0)],
+    ['決裁者を確認している',checked('agenda').includes(3)]
+  ];
+}
+function gateComplete(){return gateRequirements().every(([,done])=>done)}
+function openGate(){
+  const missing=gateRequirements().filter(([,done])=>!done).map(([label])=>label);
+  $('#missing-checks').innerHTML=`<b>未確認の項目</b><ul>${missing.map(item=>`<li>${item}</li>`).join('')}</ul>`;$('#gate-dialog').showModal();
+}
+$$('[data-gate-return]').forEach(button=>button.addEventListener('click',()=>{$('#gate-dialog').close();selectPhase(button.dataset.gateReturn)}));
+$('#gate-cancel').addEventListener('click',()=>$('#gate-dialog').close());$('#gate-force').addEventListener('click',()=>{$('#gate-dialog').close();selectPhase('free_conditions');toast('確認のうえ④へ進みました')});
+$('#suggest-button').addEventListener('click',async()=>{if(!currentSession){toast('先に商談を開始してください');show('deals');return}const button=$('#suggest-button');button.disabled=true;$('#suggest-status').textContent='正式スクリプトを確認中…';try{const data=await api('/api/sales/suggestions',{method:'POST',body:JSON.stringify({sessionId:currentSession.id,phaseId:currentPhase.id,objectionId:$('#objection-select').value,statement:$('#customer-statement').value})});currentSuggestion=data;$('#suggest-status').textContent=`${data.notice}｜根拠IDを記録`;$('#suggestions').innerHTML=data.candidates.map((item,index)=>`<article class="candidate"><header><span>${index+1}</span><b>${item.response_type}</b><small>${item.source_id}</small></header><p>${item.response_text}</p><div><small>次に聞く質問</small><p>${item.next_question}</p></div><button data-use="${index}">この返答を使用</button></article>`).join('')+(data.warnings.length?`<div class="inline-alert">入力に禁止表現が含まれています：${data.warnings.join('、')}</div>`:'');$$('[data-use]').forEach(el=>el.addEventListener('click',()=>useSuggestion(Number(el.dataset.use))))}catch(error){toast(error.message)}finally{button.disabled=false}});
+async function loadSessionRecord(){
+  if(!currentSession)return;const data=await api(`/api/sales/sessions/${currentSession.id}/record`);
+  const labels={commitment:'言質・合意',proposed_products:'提案商材',acquired_products:'獲得商材',electricity:'電気',referral:'紹介案件',progress:'進捗',next_action:'次回アクション',log:'ログ',hp_purpose:'HP目的',hp_details:'HP詳細',decision_maker:'決裁者'};
+  $('#live-facts').innerHTML=data.facts.length?data.facts.map(item=>`<article><span>${labels[item.category]||item.category}</span><p>${item.value}</p><small>${new Date(item.created_at).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})}</small></article>`).join(''):'<p class="muted small">記録はまだありません。</p>';
+  $('#session-objections').innerHTML=data.objections.length?data.objections.map(item=>`<article><b>${item.customer_statement||'発言未入力'}</b><small>${item.detected_objection}｜${new Date(item.created_at).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})}</small></article>`).join(''):'<p class="muted small">アウトはまだありません。</p>';
+}
+function renderPredictedObjections(note){
+  const items=note.predicted_objections||[],commitments=note.commitments||[],signals=note.objection_signals||[];
+  $('#predicted-objections').innerHTML=`<section class="reaction-digest"><small>相手の反応</small><b>${note.reaction_summary||'反応を追加確認'}</b>${commitments.length?`<div><small>取れた言質</small>${commitments.map(item=>`<p>✓ ${item}</p>`).join('')}</div>`:''}${signals.length?`<div><small>アウトの兆候</small>${signals.map(item=>`<p>・${item}</p>`).join('')}</div>`:''}</section>${items.length?`<div class="prediction-title"><b>次に来そうなアウト</b><small>${items.length}件を予測</small></div>${items.map(item=>`<article><span>${item.category}</span><b>${item.subcategory}</b><p>${item.responseText}</p><div><small>次に確認</small>${item.nextQuestion}</div></article>`).join('')}`:''}`;
+}
+async function loadTalkObjectionNotes(){
+  if(!currentSession)return;const data=await api(`/api/sales/talk-scripts/${currentSession.talk_script_id}/objection-notes`);
+  $('#talk-objection-notes').innerHTML=data.notes.length?data.notes.map(note=>`<article><small>${new Date(note.created_at).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</small><b>${note.reaction_summary||'反応メモ'}</b><p>${note.memo}</p>${note.commitments?.length?`<div class="saved-commitments">${note.commitments.map(item=>`<em>言質：${item}</em>`).join('')}</div>`:''}<div>${note.predicted_objections.map(item=>`<span>${item.category}</span>`).join('')}</div></article>`).join(''):'<p class="muted small">保存されたメモはまだありません。</p>';
+}
+$('#save-scratch-analysis').addEventListener('click',async()=>{
+  if(!currentSession)return toast('先に商談を開始してください');
+  const memo=$('#scratch-memo').value.trim();if(!memo)return toast('殴り書きメモを入力してください');
+  try{const data=await api(`/api/sales/talk-scripts/${currentSession.talk_script_id}/objection-notes`,{method:'POST',body:JSON.stringify({sessionId:currentSession.id,phaseId:currentPhase?.id,memo,actor:currentSession.staff_id||'FS'})});renderPredictedObjections(data.note);$('#scratch-memo').value='';await loadTalkObjectionNotes();toast('反応・言質・アウト予測を保存しました')}catch(error){toast(error.message)}
+});
+$('#save-fact').addEventListener('click',async()=>{if(!currentSession)return toast('先に商談を開始してください');try{await api(`/api/sales/sessions/${currentSession.id}/facts`,{method:'POST',body:JSON.stringify({category:$('#fact-category').value,value:$('#fact-value').value})});$('#fact-value').value='';await loadSessionRecord();toast('商談記録へ追加しました')}catch(error){toast(error.message)}});
+async function useSuggestion(index){await api(`/api/sales/suggestions/${currentSuggestion.id}/use`,{method:'POST',body:JSON.stringify({selectedCandidate:index})});$$('[data-use]').forEach((el,i)=>{el.textContent=i===index?'使用済み ✓':'この返答を使用';el.classList.toggle('used',i===index)});await loadSessionRecord();toast('使用した返答を記録しました')}
+$('#finish-button').addEventListener('click',()=>{if(!currentSession){toast('進行中の商談がありません');return}$('#finish-dialog').showModal()});$('#notes-button').addEventListener('click',()=>$('#finish-button').click());
+$('#pause-button').addEventListener('click',async()=>{
+  if(!currentSession)return toast('進行中の商談がありません');
+  try{
+    await saveProgress();await FsMeetingNote.flush();
+    await api(`/api/fs/meetings/${encodeURIComponent(currentSession.id)}/interrupt`,{method:'POST',body:JSON.stringify({currentPhase:currentPhase?.id,actor:currentSession.staff_id||'FS'})});
+    currentSession=null;storage.set(ACTIVE_MEETING_KEY,'');FsMeetingNote.close();
+    toast('商談を中断しました。各種案件用から再開できます');
+    await loadDeals();show('deals');
+  }catch(error){toast(error.message)}
+});
+$('#finish-form').addEventListener('submit',async event=>{
+  if(event.submitter?.value==='cancel')return;
+  event.preventDefault();
+  // currentTarget は await のあと null になるため、ここで保持する
+  const form=event.currentTarget,body=Object.fromEntries(new FormData(form));
+  if(!body.result)return toast('商談結果を選択してください');
+  if(!currentSession)return toast('進行中の商談がありません');
+  const meetingId=currentSession.id;
+  try{
+    await FsMeetingNote.flush();
+    await api(`/api/sales/sessions/${meetingId}/finish`,{method:'POST',body:JSON.stringify(body)});
+    $('#finish-dialog').close();FsMeetingNote.clearDraft(meetingId);FsMeetingNote.close();
+    currentSession=null;storage.set(ACTIVE_MEETING_KEY,'');form.reset();
+    toast('商談結果を保存しました');show('results');await load();
+  }catch(error){toast(error.message)}
+});
+const factValues=(facts,category)=>facts.filter(item=>item.category===category).map(item=>item.value).join('\n');
+async function buildHandoffFormat(session,facts){
+  const target=session||currentSession;
+  if(!target)return '';
+  const record=facts?{facts}:await api(`/api/sales/sessions/${target.id}/record`),form=session?{result:target.result,nextAction:target.next_action,nextActionDate:target.next_action_at,notes:target.notes}:Object.fromEntries(new FormData($('#finish-form'))),context=target.context_data||{};
+  const proposed=factValues(record.facts,'proposed_products')||context.targetProducts||'';
+  const acquired=factValues(record.facts,'acquired_products');
+  const electricity=factValues(record.facts,'electricity');
+  const referral=factValues(record.facts,'referral');
+  const progress=factValues(record.facts,'progress')||form.result||'';
+  const next=factValues(record.facts,'next_action')||form.nextAction||'';
+  const logs=[factValues(record.facts,'log'),factValues(record.facts,'commitment'),target.notes,form.notes].filter(Boolean).join('\n');
+  const hpPurpose=factValues(record.facts,'hp_purpose')||context.hpRole||'';
+  const hpDetails=factValues(record.facts,'hp_details')||context.hookPoints||'';
+  const nextDateValue=form.nextActionDate?new Date(String(form.nextActionDate).includes('T')?form.nextActionDate:`${form.nextActionDate}T00:00`):null;
+  const nextDate=nextDateValue&&!Number.isNaN(nextDateValue.getTime())?nextDateValue.toLocaleDateString('ja-JP',{month:'numeric',day:'numeric'}):(next.match(/\d{1,2}\/\d{1,2}/)?.[0])||'';
+  return `【HD：進捗管理シート引き継ぎFMT】
+【案件名：${target.customer_name||''}】
+
+＜提案商材＞
+${proposed}
+
+＜獲得商材＞
+${acquired}
+
+（電気）
+${electricity}
+
+＜紹介案件＞
+${referral}
+
+①進捗：${progress}
+②次回アクション日：${nextDate}
+③次回アクション内容：${next}
+④ログ：${logs}
+
+＜HPについて＞
+作成目的：${hpPurpose}
+具体的な内容：${hpDetails}`;
+}
+$('#preview-handoff').addEventListener('click',async()=>{if(!currentSession)return;$('#handoff-output').value=await buildHandoffFormat();$('#finish-dialog').close();$('#handoff-dialog').showModal()});
+$('#close-handoff').addEventListener('click',()=>{$('#handoff-dialog').close();$('#finish-dialog').showModal()});
+$('#copy-handoff').addEventListener('click',async()=>{try{await navigator.clipboard.writeText($('#handoff-output').value);$('#copy-status').textContent='コピーしました';toast('引き継ぎFMTをコピーしました')}catch{$('#handoff-output').select();document.execCommand('copy');$('#copy-status').textContent='コピーしました'}});
+$('#phase-form').addEventListener('submit',async event=>{event.preventDefault();const raw=Object.fromEntries(new FormData(event.currentTarget));const body={...raw,requiredQuestions:raw.requiredQuestions.split('\n').map(v=>v.trim()).filter(Boolean),prohibitedPhrases:raw.prohibitedPhrases.split('\n').map(v=>v.trim()).filter(Boolean),actor:'管理者'};const data=await api(`/api/sales/phases/${raw.id}`,{method:'PUT',body:JSON.stringify(body)});config.phases=config.phases.map(item=>item.id===data.phase.id?data.phase:item);renderPhases();editPhase(data.phase.id);selectPhase(currentPhase?.id||'intro');$('#admin-message').textContent=`保存しました（v${data.phase.version}）`;toast('公開スクリプトを更新しました')});
+const messages=$('#messages'),chatForm=$('#chat'),input=$('#input'),send=$('#send');
+function addMessage(role,text,links=[]){const article=document.createElement('article');article.className=`message ${role}`;if(role==='assistant'){const img=document.createElement('img');img.src='/assistant-icon.png';article.append(img)}const bubble=document.createElement('div');bubble.className='bubble';bubble.textContent=text;for(const link of links){bubble.append(document.createElement('br'));const a=document.createElement('a');a.href=link.url;a.target='_blank';a.rel='noreferrer';a.textContent=link.label;bubble.append(a)}article.append(bubble);messages.append(article);messages.scrollTop=messages.scrollHeight;return article}
+async function ask(text){if(!text.trim())return;addMessage('user',text);input.value='';send.disabled=true;const loading=addMessage('assistant','確認しています…');try{const data=await api('/api/chat',{method:'POST',body:JSON.stringify({message:text})});loading.remove();addMessage('assistant',data.text||'応答がありません。',data.links||[])}catch(error){loading.remove();addMessage('assistant',error.message)}finally{send.disabled=false}}
+chatForm.addEventListener('submit',event=>{event.preventDefault();ask(input.value)});document.addEventListener('click',event=>{const prompt=event.target.dataset?.prompt;if(prompt)ask(prompt)});
+FsMeetingNote.mount({input:$('#meeting-memo-input'),list:$('#meeting-memo-list'),status:$('#memo-status'),request:api,phaseLabel:phaseLabelOf});
+// 再読み込み後も、終了していない商談は同じ画面とメモの状態で復元する
+async function restoreActiveMeeting(){
+  const meetingId=storage.get(ACTIVE_MEETING_KEY);
+  if(!meetingId)return;
+  try{
+    const detail=await api(`/api/fs/deals/${encodeURIComponent(meetingId)}`);
+    if(!detail.session||detail.session.finished_at){storage.set(ACTIVE_MEETING_KEY,'');return}
+    await enterSalesSession(detail.session);
+    toast('進行中の商談とメモを復元しました');
+  }catch{storage.set(ACTIVE_MEETING_KEY,'')}
+}
+load().then(restoreActiveMeeting).catch(error=>toast(error.message));

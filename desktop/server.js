@@ -8,6 +8,8 @@ import { loadEnv } from '../src/env.js';
 import { listSheetJobs } from '../src/management-sheet.js';
 import { createJobId, JobQueue } from '../src/queue.js';
 import { SerialWorker } from '../src/worker.js';
+import { SalesAssistStore } from '../src/sales-assist.js';
+import { ObsidianSalesArchive } from '../src/obsidian-sales-archive.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 loadEnv(path.join(root, '.env'));
@@ -15,6 +17,12 @@ const publicDir = path.join(root, 'desktop', 'public');
 const port = Number(process.env.HD_ASSISTANT_PORT) || 43117;
 const queue = new JobQueue(path.join(root, 'state', 'jobs.sqlite'));
 const worker = new SerialWorker({ queue, root }); worker.start();
+const sales = new SalesAssistStore(path.join(root, 'state', 'sales-assist.sqlite'));
+const obsidianConfig = JSON.parse(fs.readFileSync(path.join(root, 'config', 'sales-assist', 'obsidian.json'), 'utf8'));
+const obsidian = obsidianConfig.enabled ? new ObsidianSalesArchive(obsidianConfig) : null;
+const syncSession = id => { if (obsidian) obsidian.syncSession(sales,id); };
+const syncPreparation = id => { if (obsidian) obsidian.syncPreparation(sales,id); };
+const syncLibraries = () => { if (obsidian) obsidian.syncLibraries(sales); };
 
 function json(response, status, value) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -74,6 +82,36 @@ async function chat(message) {
 const server = http.createServer(async (request, response) => {
   try {
     if (request.method === 'GET' && request.url === '/api/health') return json(response, 200, { ok: true });
+    if (request.method === 'GET' && request.url.startsWith('/api/sales/config')) {
+      const url=new URL(request.url,'http://127.0.0.1');
+      return json(response, 200, { ok:true, phases:sales.phases(url.searchParams.get('talkScriptId')||undefined), objections:sales.objections() });
+    }
+    if (request.method === 'GET' && request.url === '/api/sales/catalog') return json(response, 200, { ok:true, ...sales.catalog() });
+    if (request.method === 'GET' && request.url === '/api/sales/sessions') return json(response, 200, { ok:true, sessions:sales.recent() });
+    if (request.method === 'GET' && request.url === '/api/sales/preparations') return json(response, 200, { ok:true, preparations:sales.preparations() });
+    if (request.method === 'GET' && request.url === '/api/sales/objection-history') return json(response, 200, { ok:true, objections:sales.objectionHistory() });
+    if (request.method === 'GET' && /^\/api\/sales\/talk-scripts\/[^/]+\/objection-notes$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); return json(response,200,{ok:true,notes:sales.objectionNotes(id)}); }
+    if (request.method === 'POST' && /^\/api\/sales\/talk-scripts\/[^/]+\/objection-notes$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const note=sales.addObjectionNote(id,body); if(note?.session_id)syncSession(note.session_id); syncLibraries(); return json(response,note?201:404,{ok:Boolean(note),note}); }
+    if (request.method === 'POST' && request.url === '/api/sales/talk-scripts') { const body=await readBody(request); const script=sales.createTalkScript(body); syncLibraries(); return json(response,201,{ok:true,script}); }
+    if (request.method === 'POST' && request.url === '/api/sales/sessions') { const body=await readBody(request); return json(response, 201, { ok:true, session:sales.start(body) }); }
+    if (request.method === 'POST' && request.url === '/api/sales/preparations') { const body=await readBody(request); const preparation=sales.prepare(body); syncPreparation(preparation.id); return json(response, 201, { ok:true, preparation }); }
+    if (request.method === 'POST' && /^\/api\/sales\/preparations\/[^/]+\/open$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const session=sales.openPreparation(id); if(session)syncSession(session.id); return json(response,session?200:404,{ok:Boolean(session),session}); }
+    if (request.method === 'GET' && /^\/api\/sales\/sessions\/[^/]+\/record$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); return json(response,200,{ok:true,...sales.sessionRecord(id)}); }
+    if (request.method === 'POST' && /^\/api\/sales\/sessions\/[^/]+\/facts$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const fact=sales.addFact(id,body); if(fact)syncSession(id); return json(response,fact?201:404,{ok:Boolean(fact),fact}); }
+    if (request.method === 'PUT' && /^\/api\/sales\/preparations\/[^/]+$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const preparation=sales.updatePreparation(id,body); if(preparation)syncPreparation(id); return json(response,preparation?200:404,{ok:Boolean(preparation),preparation}); }
+    if (request.method === 'POST' && request.url === '/api/sales/suggestions') { const body=await readBody(request); const result=sales.suggest(body); syncSession(body.sessionId); syncLibraries(); return json(response, 200, { ok:true, ...result }); }
+    if (request.method === 'POST' && /^\/api\/sales\/suggestions\/[^/]+\/use$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const suggestion=sales.useSuggestion(id,body.selectedCandidate); syncLibraries(); return json(response,suggestion?200:404,{ ok:Boolean(suggestion), suggestion }); }
+    if (request.method === 'POST' && /^\/api\/sales\/sessions\/[^/]+\/finish$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const session=sales.finish(id,body); if(session)syncSession(id); return json(response,session?200:404,{ ok:Boolean(session), session }); }
+    if (request.method === 'PUT' && /^\/api\/sales\/sessions\/[^/]+\/progress$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const session=sales.updateProgress(id,body); return json(response,session?200:404,{ ok:Boolean(session), session }); }
+    if (request.method === 'PUT' && /^\/api\/sales\/phases\/[^/]+$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const phase=sales.updatePhase(id,body); if(phase)syncLibraries(); return json(response,phase?200:404,{ ok:Boolean(phase), phase }); }
+    if (request.method === 'PUT' && /^\/api\/sales\/talk-scripts\/[^/]+$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const script=sales.updateTalkScript(id,body); if(script)syncLibraries(); return json(response,script?200:404,{ok:Boolean(script),script}); }
+    if (request.method === 'GET' && /^\/api\/fs\/deals(\?|$)/.test(request.url)) { const url=new URL(request.url,'http://127.0.0.1'); const scope=url.searchParams.get('scope')||'active'; return json(response,200,{ ok:true, deals:scope==='finished'?sales.finishedDeals():scope==='all'?sales.deals():sales.activeDeals() }); }
+    if (request.method === 'GET' && /^\/api\/fs\/deals\/[^/?]+$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const detail=sales.deal(id); return json(response,detail?200:404,{ ok:Boolean(detail), ...(detail||{ text:'案件が見つかりません' }) }); }
+    if (request.method === 'PUT' && /^\/api\/fs\/deals\/[^/?]+$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const target=sales.deal(id); const updated=target?.preparation?sales.editPreparation(target.preparation.id,body):null; if(updated)syncPreparation(updated.id); return json(response,updated?200:404,{ ok:Boolean(updated), preparation:updated }); }
+    if (request.method === 'GET' && /^\/api\/fs\/meetings\/[^/]+\/memos$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const memos=sales.meetingMemos(id); return json(response,memos?200:404,{ ok:Boolean(memos), memos:memos||[], memoDraft:sales.session(id)?.memo_draft||'' }); }
+    if (request.method === 'POST' && /^\/api\/fs\/meetings\/[^/]+\/memos$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const memo=sales.addMeetingMemo(id,body); if(memo)syncSession(id); return json(response,memo?201:404,{ ok:Boolean(memo), memo }); }
+    if (request.method === 'PUT' && /^\/api\/fs\/meetings\/[^/]+\/memo-draft$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const saved=sales.saveMemoDraft(id,body.content); return json(response,saved?200:404,{ ok:Boolean(saved), ...(saved||{}) }); }
+    if (request.method === 'POST' && /^\/api\/fs\/meetings\/[^/]+\/interrupt$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const session=sales.interrupt(id,body); if(session)syncSession(id); return json(response,session?200:404,{ ok:Boolean(session), session }); }
     if (request.method === 'POST' && request.url === '/api/chat') { const body = await readBody(request); return json(response, 200, { ok: true, ...(await chat(body.message)) }); }
     const pathname = request.url === '/' ? '/index.html' : request.url;
     const file = path.resolve(publicDir, `.${pathname}`);
