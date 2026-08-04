@@ -297,6 +297,42 @@ test('商談を開始していない案件も削除できる', () => withStore(s
   assert.equal(store.preparation(prepared.id), null);
 }));
 
+test('案件を削除するとObsidianのノートも消え、他案件のノートは残る', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-obsidian-delete-'));
+  const vault = path.join(directory, 'vault');
+  const obsidianConfig = path.join(directory, 'obsidian.json');
+  fs.mkdirSync(vault, { recursive:true });
+  fs.writeFileSync(obsidianConfig, JSON.stringify({ vaults:{ test:{ path:vault } } }));
+  const store = new SalesAssistStore(path.join(directory, 'sales.sqlite'));
+  try {
+    const archive = new ObsidianSalesArchive({ vaultId:'test', folder:'HD', obsidianConfigPath:obsidianConfig });
+
+    const keep = store.prepare({ customerName:'残す店舗' });
+    const keepNote = archive.syncPreparation(store, keep.id);
+
+    const wrong = store.prepare({ customerName:'重複保存した店舗' });
+    const wrongPrepNote = archive.syncPreparation(store, wrong.id);
+    const session = store.openPreparation(wrong.id);
+    store.addMeetingMemo(session.id, { content:'誤登録のメモ' });
+    const wrongSessionNote = archive.syncSession(store, session.id);
+    assert.ok(fs.existsSync(wrongPrepNote) && fs.existsSync(wrongSessionNote));
+
+    // 書き出し後に店舗名を変えても、ファイル名末尾のIDで対象を特定できる
+    store.editPreparation(wrong.id, { customerName:'名前を変えた店舗' });
+
+    const removed = store.deleteDeal(wrong.deal_id);
+    const files = archive.removeDeal(removed);
+    assert.equal(files.length, 2);
+    assert.equal(fs.existsSync(wrongPrepNote), false);
+    assert.equal(fs.existsSync(wrongSessionNote), false);
+    assert.ok(fs.existsSync(keepNote), '他案件のノートは残る');
+    assert.deepEqual(archive.removeDeal({ preparationId:'', sessionId:'' }), []);
+  } finally {
+    store.close();
+    fs.rmSync(directory, { recursive:true, force:true });
+  }
+});
+
 test('URL検証とステータス判定が要件どおり動く', () => {
   assert.equal(safeUrl('https://example.com/a'), 'https://example.com/a');
   assert.equal(safeUrl('example.com'), 'https://example.com/');

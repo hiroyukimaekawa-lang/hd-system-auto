@@ -23,6 +23,12 @@ const obsidian = obsidianConfig.enabled ? new ObsidianSalesArchive(obsidianConfi
 const syncSession = id => { if (obsidian) obsidian.syncSession(sales,id); };
 const syncPreparation = id => { if (obsidian) obsidian.syncPreparation(sales,id); };
 const syncLibraries = () => { if (obsidian) obsidian.syncLibraries(sales); };
+// 案件を削除したら、書き出し済みのObsidianノートも消す（失敗しても案件削除は完了扱い）
+const removeArchive = summary => {
+  if (!obsidian) return { obsidianRemoved:0 };
+  try { return { obsidianRemoved:obsidian.removeDeal(summary).length }; }
+  catch (error) { return { obsidianRemoved:0, obsidianError:error.message }; }
+};
 
 function json(response, status, value) {
   response.writeHead(status, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' });
@@ -108,7 +114,7 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && /^\/api\/fs\/deals(\?|$)/.test(request.url)) { const url=new URL(request.url,'http://127.0.0.1'); const scope=url.searchParams.get('scope')||'active'; return json(response,200,{ ok:true, deals:scope==='finished'?sales.finishedDeals():scope==='all'?sales.deals():sales.activeDeals() }); }
     if (request.method === 'GET' && /^\/api\/fs\/deals\/[^/?]+$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const detail=sales.deal(id); return json(response,detail?200:404,{ ok:Boolean(detail), ...(detail||{ text:'案件が見つかりません' }) }); }
     if (request.method === 'PUT' && /^\/api\/fs\/deals\/[^/?]+$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const target=sales.deal(id); const updated=target?.preparation?sales.editPreparation(target.preparation.id,body):null; if(updated)syncPreparation(updated.id); return json(response,updated?200:404,{ ok:Boolean(updated), preparation:updated }); }
-    if (request.method === 'DELETE' && /^\/api\/fs\/deals\/[^/?]+$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const removed=sales.deleteDeal(id,{ actor:'FS' }); return json(response,removed?200:404,{ ok:Boolean(removed), removed, ...(removed?{}:{ text:'案件が見つかりません' }) }); }
+    if (request.method === 'DELETE' && /^\/api\/fs\/deals\/[^/?]+$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const removed=sales.deleteDeal(id,{ actor:'FS' }); return json(response,removed?200:404,{ ok:Boolean(removed), removed:removed&&{ ...removed, ...removeArchive(removed) }, ...(removed?{}:{ text:'案件が見つかりません' }) }); }
     if (request.method === 'GET' && /^\/api\/fs\/meetings\/[^/]+\/memos$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const memos=sales.meetingMemos(id); return json(response,memos?200:404,{ ok:Boolean(memos), memos:memos||[], memoDraft:sales.session(id)?.memo_draft||'' }); }
     if (request.method === 'POST' && /^\/api\/fs\/meetings\/[^/]+\/memos$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const memo=sales.addMeetingMemo(id,body); if(memo)syncSession(id); return json(response,memo?201:404,{ ok:Boolean(memo), memo }); }
     if (request.method === 'PUT' && /^\/api\/fs\/meetings\/[^/]+\/memo-draft$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const saved=sales.saveMemoDraft(id,body.content); return json(response,saved?200:404,{ ok:Boolean(saved), ...(saved||{}) }); }

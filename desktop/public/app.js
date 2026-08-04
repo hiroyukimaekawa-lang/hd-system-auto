@@ -206,7 +206,7 @@ function confirmDeleteDeal(deal){
   if(currentSession&&((deal.meetingId&&deal.meetingId===currentSession.id)||(openDealId&&deal.dealId===openDealId)))return toast('進行中の商談です。中断または終了してから削除してください');
   pendingDeleteDeal=deal;
   $('#delete-deal-target').textContent=[deal.storeName||'店舗名未入力',deal.ownerName&&`${deal.ownerName}様`].filter(Boolean).join('／');
-  $('#delete-deal-detail').textContent=deal.meetingId?`この案件の商談記録（メモ・言質・アウト履歴）もあわせて削除されます。ステータス：${deal.status}`:`まだ商談を開始していない案件です。ステータス：${deal.status}`;
+  $('#delete-deal-detail').textContent=`${deal.meetingId?`この案件の商談記録（メモ・言質・アウト履歴）もあわせて削除されます。ステータス：${deal.status}`:`まだ商談を開始していない案件です。ステータス：${deal.status}`}\nObsidianへ書き出したノートがある場合は、そのノートも削除されます。`;
   $('#delete-deal-dialog').showModal();
 }
 // method="dialog" のフォーム送信でダイアログは閉じるため、submitで受ける
@@ -216,7 +216,10 @@ $('#delete-deal-form').addEventListener('submit',async event=>{
   try{
     const data=await api(`/api/fs/deals/${encodeURIComponent(deal.dealId||deal.meetingId||deal.preparationId)}`,{method:'DELETE'});
     await Promise.all([loadDeals(),renderResults()]);
-    toast(`「${data.removed.storeName||'店舗名未入力'}」を削除しました`);
+    const name=data.removed.storeName||'店舗名未入力';
+    toast(data.removed.obsidianError?`「${name}」を削除しました。Obsidianのノートは削除できませんでした（${data.removed.obsidianError}）`
+      :data.removed.obsidianRemoved?`「${name}」を削除しました（Obsidianノート${data.removed.obsidianRemoved}件も削除）`
+      :`「${name}」を削除しました`);
   }catch(error){toast(error.message)}
 });
 function dealCard(deal){

@@ -32,6 +32,25 @@ export class ObsidianSalesArchive {
     fs.writeFileSync(target, `${content.trim()}\n`, 'utf8');
     return target;
   }
+  // ファイル名の店舗名は書き出し時点のものなので、末尾のID8桁だけで対象を特定する
+  removeById(directory, id) {
+    const key = String(id || '').slice(0, 8);
+    if (!key) return [];
+    const target = path.join(this.vaultPath(), this.folder, directory);
+    if (!fs.existsSync(target)) return [];
+    const suffix = ` - ${key}.md`;
+    return fs.readdirSync(target)
+      .filter(file => file.endsWith(suffix))
+      .map(file => path.join(target, file))
+      .filter(file => fs.statSync(file).isFile())
+      .map(file => { fs.rmSync(file); return file; });
+  }
+  removeDeal({ preparationId, sessionId } = {}) {
+    return [
+      ...this.removeById(path.join('商談内容', '案件'), sessionId),
+      ...this.removeById(path.join('商談内容', '商談準備'), preparationId)
+    ];
+  }
   syncSession(store, sessionId) {
     const session = store.session(sessionId);
     if (!session) return null;
