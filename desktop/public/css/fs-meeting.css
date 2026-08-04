@@ -121,3 +121,50 @@ body.sidebar-collapsed main{margin-left:76px}
   .note-column{border-left:0;border-top:1px solid var(--line)}
   .meeting-note{position:static}
 }
+
+/* インタビューフォーム（⑧フェーズ）*/
+.interview-form-header{margin:18px 0 10px}
+.interview-form-header h3{margin:4px 0;font:700 17px Georgia,"Yu Mincho",serif}
+.interview-form-header p{margin:0;font-size:13px;color:var(--muted)}
+.interview-form{display:grid;gap:12px}
+.interview-field{display:grid;gap:5px;font-size:12px;color:var(--muted)}
+.interview-field span{font-weight:700;color:var(--ink);font-size:13px}
+.interview-field textarea{padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--ink);resize:vertical;line-height:1.6;font-size:14px;width:100%}
+
+/* インタビュー回答参照（⑨フェーズ）*/
+.interview-answers-header{margin:18px 0 10px}
+.interview-answers-header h3{margin:4px 0;font:700 17px Georgia,"Yu Mincho",serif}
+.interview-answers{display:grid;gap:10px;background:#f7faf6;border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.interview-answer-item{display:grid;gap:3px}
+.interview-answer-item small{font-size:11px;color:var(--muted);font-weight:700}
+.interview-answer-item p{margin:0;font-size:14px;white-space:pre-wrap;line-height:1.55}
+
+/* ⑩フェーズセクションナビ */
+.phase10-section-nav{margin:18px 0 12px}
+.phase10-nav-header{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.phase10-nav-header span{font-size:13px;color:var(--muted)}
+.phase10-nav-buttons{display:flex;flex-wrap:wrap;gap:8px}
+.phase10-section-btn{border:1px solid var(--line);border-radius:9px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;background:var(--panel);color:var(--ink)}
+.phase10-section-btn.active{background:var(--green);color:#fff;border-color:var(--green)}
+.phase10-section-content{margin-top:14px}
+.phase10-section-header{margin-bottom:8px}
+.phase10-section-header b{font-size:15px;font-weight:700}
+.phase10-section-script{margin-top:8px}
+
+/* ⑩電力会社確認フォーム */
+.phase10-state-form{background:#f7faf6;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:14px;display:grid;gap:10px}
+.phase10-state-field{display:grid;gap:5px;font-size:12px;color:var(--muted)}
+.phase10-state-field small{font-weight:700;color:var(--ink);font-size:12px}
+.phase10-state-field input,.phase10-state-field select{padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font-size:14px}
+
+/* ⑩カード選択 */
+.phase10-card-section{background:#f7faf6;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:14px;display:grid;gap:10px}
+.phase10-card-buttons{display:flex;gap:10px;flex-wrap:wrap}
+.phase10-card-btn{border:1px solid var(--line);border-radius:9px;padding:10px 20px;font-size:14px;font-weight:700;cursor:pointer;background:var(--panel)}
+.phase10-card-btn:hover{background:#e8eee8}
+.phase10-card-selected b{font-size:15px;font-weight:700}
+
+/* ⑩完了チェックリスト */
+.phase10-checklist{background:#f7faf6;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:14px;display:grid;gap:8px}
+.phase10-check{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:14px}
+.phase10-check input{width:18px;height:18px;accent-color:var(--green)}

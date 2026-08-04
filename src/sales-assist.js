@@ -3,6 +3,7 @@ import fs from 'node:fs';
 import path from 'node:path';
 import crypto from 'node:crypto';
 import { MAEKAWA_PHASES } from './maekawa-sales-script.js';
+import { INTERVIEW_PHASES } from './interview-sales-script.js';
 import { fileURLToPath } from 'node:url';
 
 const now = () => new Date().toISOString();
@@ -128,6 +129,10 @@ export class SalesAssistStore {
       CREATE TABLE IF NOT EXISTS talk_script_objection_notes(id TEXT PRIMARY KEY, talk_script_id TEXT, session_id TEXT, phase_id TEXT, memo TEXT, predicted_objections TEXT DEFAULT '[]', created_at TEXT);
       CREATE TABLE IF NOT EXISTS meeting_memos(id TEXT PRIMARY KEY, meeting_id TEXT, phase_id TEXT DEFAULT '', content TEXT, created_at TEXT);
       CREATE INDEX IF NOT EXISTS meeting_memos_meeting ON meeting_memos(meeting_id, created_at);
+      CREATE TABLE IF NOT EXISTS meeting_interview_data(id TEXT PRIMARY KEY, meeting_id TEXT NOT NULL, field_key TEXT NOT NULL, field_value TEXT DEFAULT '', updated_at TEXT, UNIQUE(meeting_id, field_key));
+      CREATE INDEX IF NOT EXISTS interview_data_meeting ON meeting_interview_data(meeting_id);
+      CREATE TABLE IF NOT EXISTS material_open_logs(id TEXT PRIMARY KEY, meeting_id TEXT NOT NULL, material_id TEXT NOT NULL, phase_id TEXT DEFAULT '', section_id TEXT DEFAULT '', opened_at TEXT);
+      CREATE INDEX IF NOT EXISTS material_open_logs_meeting ON material_open_logs(meeting_id, opened_at);
     `);
     this.ensureColumn('sales_phases','group_name',"TEXT DEFAULT ''");
     this.ensureColumn('sales_sessions','context_data',"TEXT DEFAULT '{}'");
@@ -175,8 +180,21 @@ export class SalesAssistStore {
       const scriptInsert = this.db.prepare('INSERT INTO talk_scripts(id,department_id,name,products,customer_type,version,status,updated_at,phase_count) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET department_id=excluded.department_id,name=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.name ELSE excluded.name END,products=excluded.products,customer_type=excluded.customer_type,version=excluded.version,status=excluded.status,updated_at=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.updated_at ELSE excluded.updated_at END,phase_count=excluded.phase_count');
       for (const item of catalog.departments) departmentInsert.run(item.id,item.name,item.description,item.status,now());
       for (const item of catalog.scripts) {
-        const phaseCount=item.id==='hd-new-ap-20260725'?DEFAULT_PHASES.length:0;
+        const phaseCount=item.id==='hd-new-ap-20260725'?DEFAULT_PHASES.length:item.id==='hp-free-interview-talk'?INTERVIEW_PHASES.length:0;
         scriptInsert.run(item.id,item.departmentId,item.name,JSON.stringify(item.products),item.customerType,item.version,item.status,item.updatedAt||now(),phaseCount);
+      }
+      const interviewVersion = 1;
+      const storedInterviewVersion = Number(this.db.prepare("SELECT value FROM sales_meta WHERE key='interview_content_version'").get()?.value || 0);
+      if (storedInterviewVersion < interviewVersion) {
+        const interviewScript = this.db.prepare('SELECT * FROM talk_scripts WHERE id=?').get('hp-free-interview-talk');
+        if (interviewScript) {
+          const insertPhase = this.db.prepare('INSERT INTO talk_script_phases(id,talk_script_id,phase_order,group_name,name,goal,base_script,required_questions,transition_conditions,prohibited_phrases,version,status,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+          this.db.prepare('DELETE FROM talk_script_phases WHERE talk_script_id=?').run('hp-free-interview-talk');
+          const ts = now();
+          for (const item of INTERVIEW_PHASES) insertPhase.run(item.id,'hp-free-interview-talk',item.order,item.group,item.name,item.goal,item.script,JSON.stringify(item.questions),item.transition,JSON.stringify(item.prohibited),1,'published',ts);
+          this.db.prepare('UPDATE talk_scripts SET phase_count=? WHERE id=?').run(INTERVIEW_PHASES.length,'hp-free-interview-talk');
+          this.db.prepare("INSERT INTO sales_meta(key,value) VALUES('interview_content_version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(interviewVersion));
+        }
       }
       for (const item of DEFAULT_OBJECTIONS) {
         objection.run(item.id,item.category,item.subcategory,item.subcategory,item.phaseId,now());
@@ -485,6 +503,26 @@ export class SalesAssistStore {
       .run(data.goal,data.baseScript,JSON.stringify(data.requiredQuestions||[]),data.transitionConditions,JSON.stringify(data.prohibitedPhrases||[]),now(),id);
     this.audit(data.actor||'管理者','update','sales_phase',id,{ previousVersion:existing.version });
     return this.phases(custom?.talk_script_id||'hd-new-ap-20260725').find(item=>item.id===id);
+  }
+  interviewData(meetingId) {
+    const rows = this.db.prepare('SELECT field_key, field_value FROM meeting_interview_data WHERE meeting_id=?').all(meetingId);
+    return Object.fromEntries(rows.map(row => [row.field_key, row.field_value]));
+  }
+  saveInterviewData(meetingId, data) {
+    if (!this.session(meetingId)) return null;
+    const ts = now();
+    const upsert = this.db.prepare('INSERT INTO meeting_interview_data(id,meeting_id,field_key,field_value,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(meeting_id,field_key) DO UPDATE SET field_value=excluded.field_value,updated_at=excluded.updated_at');
+    this.db.transaction(() => {
+      for (const [key, value] of Object.entries(data)) upsert.run(crypto.randomUUID(), meetingId, String(key), String(value ?? ''), ts);
+    })();
+    return this.interviewData(meetingId);
+  }
+  logMaterialOpen(meetingId, materialId, phaseId, sectionId) {
+    if (!this.session(meetingId)) return null;
+    const id = crypto.randomUUID();
+    const openedAt = now();
+    this.db.prepare('INSERT INTO material_open_logs(id,meeting_id,material_id,phase_id,section_id,opened_at) VALUES(?,?,?,?,?,?)').run(id, meetingId, String(materialId), String(phaseId || ''), String(sectionId || ''), openedAt);
+    return { id, meetingId, materialId, phaseId: phaseId || '', sectionId: sectionId || '', openedAt };
   }
   recent(limit=20) { return this.db.prepare('SELECT * FROM sales_sessions ORDER BY started_at DESC LIMIT ?').all(limit).map(row => ({...row,context_data:parse(row.context_data,{}),step_state:parse(row.step_state,{})})); }
   audit(actor,action,entityType,entityId,detail) { this.db.prepare('INSERT INTO audit_logs(actor,action,entity_type,entity_id,detail,created_at) VALUES(?,?,?,?,?,?)').run(actor,action,entityType,entityId,JSON.stringify(detail),now()); }

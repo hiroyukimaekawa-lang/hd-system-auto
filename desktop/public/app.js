@@ -1,5 +1,6 @@
 const $=selector=>document.querySelector(selector), $$=selector=>[...document.querySelectorAll(selector)];
 let config={phases:[],objections:[]}, catalog={departments:[],scripts:[],applicationGuide:null}, selectedDepartment='hd', selectedScript='hd-new-ap-20260725', currentSession=null, currentPhase=null, currentSuggestion=null, activePreparation=null, activeDeal=null, editingDealId=null, deals=[], renamingScriptId=null, saveTimer=null, applicationItem=1;
+let currentSection=null, interviewData={}, phase10State={}, interviewSaveTimer=null;
 const ACTIVE_MEETING_KEY='hdActiveMeetingId';
 const storage={
   get(key){try{return localStorage.getItem(key)||''}catch{return ''}},
@@ -395,7 +396,7 @@ function renderPhases(){
   $('#phase-list').innerHTML=groups.map(group=>{
     const phases=config.phases.filter(phase=>phase.group_name===group);
     const groupName=phases[0]?.name.replace(/^③-\d\s*/,'')||'';
-    if(group==='③') return `<div class="phase-group"><div class="group-title"><span>${group}</span><b>HP興味付け・事例</b></div>${phases.map(phase=>`<button class="subphase" data-phase="${phase.id}"><span>${phase.name.match(/^③-\d/)?.[0]||''}</span><div><b>${phase.name.replace(/^③-\d\s*/,'')}</b></div></button>`).join('')}</div>`;
+    if(group==='③'&&phases.length>1) return `<div class="phase-group"><div class="group-title"><span>${group}</span><b>HP興味付け・事例</b></div>${phases.map(phase=>`<button class="subphase" data-phase="${phase.id}"><span>${phase.name.match(/^③-\d/)?.[0]||''}</span><div><b>${phase.name.replace(/^③-\d\s*/,'')}</b></div></button>`).join('')}</div>`;
     return `<button data-phase="${phases[0].id}"><span>${group}</span><div><b>${groupName}</b><small>${phases[0].goal}</small></div></button>`;
   }).join('');
   $('#admin-phase-list').innerHTML=config.phases.map(phase=>`<button type="button" data-admin-phase="${phase.id}"><span>${String(phase.phase_order).padStart(2,'0')}</span>${phase.name}<small>v${phase.version}</small></button>`).join('');
@@ -405,10 +406,11 @@ function renderPhases(){
 }
 function selectPhase(id){
   currentPhase=phaseById(id); if(!currentPhase)return;
+  currentSection=null;
   $$('[data-phase]').forEach(button=>button.classList.toggle('active',button.dataset.phase===id));
   const owner=currentSession?.owner_name||'〇〇', hpRole=currentSession?.context_data?.hpRole||'　　　　　　　　　　　　　　';
   const script=formatScriptText(currentPhase.base_script.replaceAll('〇〇様',`${owner}様`).replaceAll('{{hpRole}}',hpRole));
-  $('#phase-label').textContent=`PHASE ${currentPhase.group_name}${currentPhase.group_name==='③'?` / STEP ${currentPhase.name.match(/\d/)?.[0]||''}`:''}`;$('#phase-name').textContent=currentPhase.name;$('#phase-goal').textContent=currentPhase.goal;$('#base-script').textContent=script;
+  $('#phase-label').textContent=`PHASE ${currentPhase.group_name}${currentPhase.group_name==='③'&&config.phases.filter(p=>p.group_name==='③').length>1?` / STEP ${currentPhase.name.match(/\d/)?.[0]||''}`:''}`;$('#phase-name').textContent=currentPhase.name;$('#phase-goal').textContent=currentPhase.goal;$('#base-script').textContent=script;
   const stored=currentSession?.step_state?.[id]||[],checked=Array.isArray(stored)?stored:stored.checked||[],notes=Array.isArray(stored)?{}:stored.notes||{};
   $('#phase-questions').innerHTML=currentPhase.required_questions.map((item,index)=>{
     const note=notes[index]||{};
@@ -417,8 +419,9 @@ function selectPhase(id){
   $('#phase-transition').textContent=currentPhase.transition_conditions;$('#prohibited').innerHTML=currentPhase.prohibited_phrases.map(item=>`<span>${item}</span>`).join('');$('#warning-box').hidden=!currentPhase.prohibited_phrases.length;
   $('#return-select').value=id;
   $('#hp-role').value=currentSession?.context_data?.hpRole||'';$('#session-notes').value=currentSession?.notes||'';
-  const rolePhase=['hp_role','hp_explanation','test_closing','lr_09'].includes(id);$('#context-fields').hidden=!rolePhase;$('#context-fields').classList.toggle('highlight-role',rolePhase);
+  const rolePhase=['hp_role','hp_explanation','test_closing','lr_09','interview_phase_09'].includes(id);$('#context-fields').hidden=!rolePhase;$('#context-fields').classList.toggle('highlight-role',rolePhase);
   renderApplicationGuide();
+  renderInterviewSection(id);
   renderReturnRecommendations();
   $('#objection-select').value=config.objections.find(item=>item.applicable_phase===id)?.id||'other';$('#suggestions').innerHTML='';currentSuggestion=null;
   if(currentSession){currentSession.current_phase=id;scheduleProgressSave();FsMeetingNote.setPhase(id);renderMaterialBar()}
@@ -553,14 +556,181 @@ $('#material-form').addEventListener('submit',async event=>{
     $('#material-form-dialog').close();await loadMaterialAdmin();toast('資料を保存しました');
   }catch(error){$('#material-form-message').textContent=error.message}
 });
+async function logMaterialOpen(materialId){
+  if(!currentSession||!materialId)return;
+  try{await api(`/api/fs/materials/${encodeURIComponent(materialId)}/open-log`,{method:'POST',body:JSON.stringify({meetingId:currentSession.id,phaseId:currentPhase?.id||'',sectionId:currentSection||''})})}catch{}
+}
 async function renderMaterialBar(){
   const bar=$('#material-bar');
   if(!currentSession)return FsMaterials.renderBar(bar,[],{message:'商談を開始すると、フェーズに合う資料が表示されます'});
   // 資料の取得に失敗しても商談画面は止めない
   try{
-    const data=await api(`/api/fs/meetings/${encodeURIComponent(currentSession.id)}/materials${materialQuery({phaseId:currentPhase?.id||'',limit:4})}`);
-    FsMaterials.renderBar(bar,data.materials,{onOpenAll:()=>openMaterialsDialog()});
+    const params={phaseId:currentPhase?.id||'',limit:4};
+    if(currentSection)params.sectionId=currentSection;
+    if(currentPhase?.id==='interview_phase_10'&&currentSection==='phase_10_card_branch'&&phase10State.selectedCardProduct)params.cardProductOverride=phase10State.selectedCardProduct;
+    const data=await api(`/api/fs/meetings/${encodeURIComponent(currentSession.id)}/materials${materialQuery(params)}`);
+    FsMaterials.renderBar(bar,data.materials,{onOpenAll:()=>openMaterialsDialog(),onOpen:material=>logMaterialOpen(material.id)});
   }catch{FsMaterials.renderBar(bar,[],{onOpenAll:()=>openMaterialsDialog(),message:'資料を読み込めませんでした'})}
+}
+const INTERVIEW_FIELD_LABELS={openedAtAndReason:'①開業時期・開業のきっかけ',strengthAndConcept:'②店舗の強み・コンセプト',recommendedProducts:'③おすすめ商品・メニュー',targetCustomers:'④増やしたいターゲット',futureVision:'⑤今後の展望',currentChallenges:'⑥現在の課題・理想とのギャップ'};
+const PHASE10_SECTION_NAMES={phase_10_scheme:'①無料制作の仕組み',phase_10_provider_check:'②現在の電力会社確認',phase_10_electricity_offer:'③エネパルの提案',phase_10_card_branch:'④カード・アフィリエイト（任意）',phase_10_application_form:'⑤申込書説明',phase_10_objection_pre_screening:'⑥申込前の懸念確認',phase_10_line_cloudsign:'⑦LINE・クラウドサイン'};
+const PHASE10_SECTION_SCRIPTS={
+  phase_10_scheme:`ここから、今回なぜホームページを無料で制作できるのかと、制作にあたっての条件をご説明します。\n\n本来、ホームページ制作には、デザイナーやエンジニアの人件費、制作費、公開作業などの費用がかかります。\n\n今回は、店舗様からホームページの制作費をいただく代わりに、弊社が提携している会社から事業支援金をいただき、その支援金を制作費に充てる仕組みになっています。\n\n今回ご案内している提携先が、エネパルという電力会社です。\n\n現在お使いの電力会社からエネパルへお切り替えいただくことで、弊社に事業支援金が入り、その支援金をホームページの制作費に充てます。\n\nつまり、今回の無料制作の条件としては、\n\n「エネパルへの電気切り替えにご協力いただき、その代わりに弊社がホームページを無料で制作する」\n\nという内容になります。\n\nもちろん、現在の電気契約や明細を確認したうえで、対象プラン、料金、契約期間、解約条件などは正式にご説明します。\n\nこの条件で、ホームページ制作を進めさせていただいてもよろしいでしょうか？\n\n【料金が高くならないかと言われた場合】\n現時点で必ず安くなるとはお伝えできませんので、現在の明細と、エネパルの対象プランを確認したうえで比較します。\n\n【電気は変えたくないと言われた場合】\n理由は、現在の会社に満足、過去に料金が上がった、知人や取引先との関係、手続きや契約期間への不安、そもそも変えたくない、のどれが一番近いですか？`,
+  phase_10_provider_check:`それでは、現在ご利用の電力会社について確認させてください。\n\n現在の電力会社はどちらでしょうか？\n\n契約名義はオーナー様でよろしかったでしょうか？\n\n現在の契約に、契約期間や解約に関する条件はありますか？\n\n電気の請求書や明細はお手元にありますか？\n\n明細があれば、月額の費用を確認させてください。\n\n電気の請求先は、このお店の住所でよろしかったでしょうか？`,
+  phase_10_electricity_offer:`ありがとうございます。\n\n確認した内容をもとに、エネパルの対象プランと料金をご説明します。\n\n【エネパル料金表・関東エリア資料を表示】\n\n現在の電力会社の料金と、エネパルの対象プランを比較します。\n\n現時点で必ず安くなるとはお伝えできませんが、対象プランを確認したうえで、料金の違いをご説明します。\n\n契約期間、解約条件、サポート内容についても、正式情報の範囲でご説明します。\n\nご不明な点は、この場で分かる範囲でお答えします。確認が必要な事項は、持ち帰って後日ご連絡します。\n\nエネパルへの切り替えについて、条件面で問題はありそうですか？`,
+  phase_10_card_branch:`ここまでが、ホームページ制作とエネパルに関するお手続きの確認です。\n\nここからは、ホームページ制作とは別の、任意のご協力依頼になります。\n\nこちらにお申し込みいただかなくても、先ほどのホームページ制作条件には影響しません。\n\n現在、弊社ではAMEX、三井住友ビジネスオーナーズカード、ACマスターカードのご案内も行っているのですが、内容だけお聞きいただくことはできますか？\n\n興味がない場合は、任意のご案内なので問題ありません。興味がある場合のみ、年会費、特典、審査、申込条件などを正式な資料に沿ってご説明します。`,
+  phase_10_application_form:`ありがとうございます。\n\nそれでは、先ほどお話しした内容を口頭だけで終わらせず、無料で制作することを双方で確認できるように、申込書を一緒に読み合わせさせていただきます。\n\n今、画面は見えていますか？\n\nありがとうございます。\n\n少し文章が多いんですけど、全部をそのまま読み上げるというよりは、大事な部分をこちらから分かりやすくご説明していきます。\n\n途中で分からない部分や、もう一度確認したい部分があれば、その都度止めていただいて大丈夫です。\n\n内容に問題がなければ、最後に今見ていただいている申込書と同じものをクラウドサインでお送りします。\n\nそちらにご署名いただいて、正式なお申し込み完了という流れになります。`,
+  phase_10_objection_pre_screening:`申込書の読み合わせが終わりました。\n\nここまでの内容で、何かご不明な点や気になる点はありますか？\n\n【電気の切り替えが心配な場合】\n電気の切り替えについては、現在の明細と今回のプランを確認したうえで、料金や条件に問題がないことを確認してから進めます。\n\n条件に問題があった場合は、お申し込み自体が無効になりますので、費用が発生することはありません。\n\n【HPの内容が心配な場合】\nHPの制作範囲と修正の条件は、先ほど申込書でご確認いただいた通りです。\n\n初稿が出来上がった段階で内容を確認いただき、1回まで修正が可能です。\n\n【サインの前に確認したいと言われた場合】\n確認が必要な点をまとめて、後日回答します。\n\n確認後にご署名いただく形で問題ありません。`,
+  phase_10_line_cloudsign:`ありがとうございます。\n\nこの後のホームページ制作に関するご連絡や、必要な情報のご案内を行うために、弊社の公式LINEを追加していただきます。\n\n今、こちらのURLは開けますか？\n\nhttps://line.me/R/ti/p/@348hkufo\n\n追加後、LINE上でオーナー様のお名前と店舗名を一度お送りいただけますか？\n\n続いて、クラウドサインで申込書をお送りしますので、受信可能なメールアドレスを確認させてください。\n\nメールアドレスは、〇〇でお間違いないですか？\n\n【クラウドサイン確認】\n今、クラウドサインからメールが届いているか、ご確認いただけますか？\n\nメールを開いていただくと、書類を確認するボタンがありますので、そちらを押してください。\n\n先ほど一緒に読み合わせた内容と、記載内容に相違がないか、改めてご確認ください。\n\n不明点があれば、署名前に必ずおっしゃってください。\n\n内容に問題がなければ、同意・署名のお手続きをお願いします。`
+};
+function renderInterviewSection(phaseId){
+  const section=$('#interview-section');
+  section.hidden=true;section.textContent='';
+  if(!currentSession)return;
+  if(phaseId==='interview_phase_08'){section.hidden=false;renderInterviewForm(section)}
+  else if(phaseId==='interview_phase_09'){section.hidden=false;renderInterviewAnswers(section)}
+  else if(phaseId==='interview_phase_10'){section.hidden=false;renderPhase10Nav(section)}
+}
+async function renderInterviewForm(container){
+  if(!interviewData||!Object.keys(interviewData).length){
+    try{const data=await api(`/api/fs/meetings/${encodeURIComponent(currentSession.id)}/interview`);interviewData={...data.data}}catch{}
+  }
+  container.textContent='';
+  const header=el('div',{class:'interview-form-header'},[el('span',{class:'eyebrow',text:'INTERVIEW'}),el('h3',{text:'インタビュー記録'}),el('p',{text:'6項目を入力してください。入力内容は自動保存されます。'})]);
+  const form=el('div',{class:'interview-form'});
+  for(const [key,label] of Object.entries(INTERVIEW_FIELD_LABELS)){
+    const textarea=el('textarea',{rows:3,placeholder:`${label}の内容を記録`,'data-interview-field':key});
+    textarea.textContent=interviewData[key]||'';
+    textarea.addEventListener('input',()=>{interviewData[key]=textarea.value;scheduleInterviewSave()});
+    form.append(el('label',{class:'interview-field'},[el('span',{text:label}),textarea]));
+  }
+  container.append(header,form);
+}
+function scheduleInterviewSave(){
+  clearTimeout(interviewSaveTimer);
+  interviewSaveTimer=setTimeout(async()=>{
+    if(!currentSession)return;
+    try{await api(`/api/fs/meetings/${encodeURIComponent(currentSession.id)}/interview`,{method:'PUT',body:JSON.stringify(interviewData)})}catch{}
+  },500);
+}
+async function renderInterviewAnswers(container){
+  if(!Object.keys(interviewData).length){
+    try{const data=await api(`/api/fs/meetings/${encodeURIComponent(currentSession.id)}/interview`);interviewData={...data.data}}catch{}
+  }
+  container.textContent='';
+  const hasData=Object.values(INTERVIEW_FIELD_LABELS).some((_,i)=>interviewData[Object.keys(INTERVIEW_FIELD_LABELS)[i]]);
+  const header=el('div',{class:'interview-answers-header'},[el('span',{class:'eyebrow',text:'INTERVIEW REFERENCE'}),el('h3',{text:'⑧インタビュー内容（参照用）'})]);
+  const answers=el('div',{class:'interview-answers'});
+  if(!hasData){answers.append(el('p',{class:'muted small',text:'⑧フェーズでインタビューを記録してください。'}));container.append(header,answers);return}
+  for(const [key,label] of Object.entries(INTERVIEW_FIELD_LABELS)){
+    const value=interviewData[key]||'';
+    answers.append(el('div',{class:'interview-answer-item'},[el('small',{text:label}),el('p',{text:value||'（未記録）'})]));
+  }
+  container.append(header,answers);
+}
+function renderPhase10Nav(container){
+  const stored=currentSession?.step_state?.interview_phase_10_meta||{};
+  phase10State={electricityProvider:'',electricityEligibility:'unknown',monthlyElectricityCost:'',selectedCardProduct:null,applicationFormReviewed:false,officialLineAdded:false,cloudsignSent:false,cloudsignSigned:false,...stored};
+  const nav=el('div',{class:'phase10-section-nav'});
+  const navHeader=el('div',{class:'phase10-nav-header'},[el('span',{class:'eyebrow',text:'SECTION'}),el('span',{text:'進行中のセクションを選択してください'})]);
+  const buttons=el('div',{class:'phase10-nav-buttons'});
+  for(const [id,name] of Object.entries(PHASE10_SECTION_NAMES)){
+    const btn=el('button',{class:`phase10-section-btn${currentSection===id?' active':''}`,type:'button',text:name,'data-section':id});
+    btn.addEventListener('click',()=>selectSection(id));
+    buttons.append(btn);
+  }
+  nav.append(navHeader,buttons);
+  const contentArea=el('div',{id:'phase10-section-content',class:'phase10-section-content'});
+  if(currentSection){renderPhase10SectionContent(contentArea,currentSection)}
+  else contentArea.append(el('p',{class:'muted small',text:'上のセクションボタンを押すと、そのセクションのスクリプトと資料が表示されます。'}));
+  container.append(nav,contentArea);
+}
+async function selectSection(sectionId){
+  currentSection=sectionId;
+  // Update nav button active state
+  $$('.phase10-section-btn').forEach(btn=>btn.classList.toggle('active',btn.dataset.section===sectionId));
+  const contentArea=$('#phase10-section-content');
+  if(contentArea)renderPhase10SectionContent(contentArea,sectionId);
+  renderMaterialBar();
+}
+function renderPhase10SectionContent(container,sectionId){
+  container.textContent='';
+  const script=PHASE10_SECTION_SCRIPTS[sectionId]||'';
+  const scriptBox=el('div',{class:'script-box document-script phase10-section-script'});
+  scriptBox.textContent=formatScriptText(script);
+  container.append(el('div',{class:'phase10-section-header'},[el('b',{text:PHASE10_SECTION_NAMES[sectionId]||sectionId})]),scriptBox);
+  if(sectionId==='phase_10_provider_check')renderElectricityStateForm(container);
+  if(sectionId==='phase_10_card_branch')renderCardSelection(container);
+  if(sectionId==='phase_10_line_cloudsign')renderPhase10Checklist(container);
+}
+function renderElectricityStateForm(container){
+  const form=el('div',{class:'phase10-state-form'});
+  form.append(el('span',{class:'eyebrow',text:'ELECTRICITY INFO'}));
+  const fieldDefs=[
+    {key:'electricityProvider',label:'現在の電力会社',type:'text',placeholder:'例：東京電力'},
+    {key:'monthlyElectricityCost',label:'月額電気代（円）',type:'text',placeholder:'例：15000'}
+  ];
+  for(const {key,label,type,placeholder} of fieldDefs){
+    const input=el('input',{type,placeholder,value:phase10State[key]||''});
+    input.addEventListener('input',()=>{phase10State[key]=input.value;savePhase10State()});
+    form.append(el('label',{class:'phase10-state-field'},[el('small',{text:label}),input]));
+  }
+  const eligLabel=el('small',{text:'エネパル切替の可否'});
+  const eligSelect=el('select');
+  [['unknown','未確認'],['eligible','切替可能'],['ineligible_existing_group','既存グループ契約・対象外'],['needs_manual_review','要個別確認']].forEach(([value,label])=>{
+    const opt=el('option',{value,text:label});if(phase10State.electricityEligibility===value)opt.selected=true;eligSelect.append(opt);
+  });
+  eligSelect.addEventListener('change',()=>{phase10State.electricityEligibility=eligSelect.value;savePhase10State()});
+  form.append(el('label',{class:'phase10-state-field'},[eligLabel,eligSelect]));
+  container.append(form);
+}
+function renderCardSelection(container){
+  const cardSection=el('div',{class:'phase10-card-section'});
+  cardSection.append(el('span',{class:'eyebrow',text:'CARD SELECTION'}));
+  if(!phase10State.selectedCardProduct){
+    cardSection.append(el('p',{class:'small',text:'案内するカードを選択すると、対応する資料が表示されます。（任意）'}));
+    const buttons=el('div',{class:'phase10-card-buttons'});
+    [['amex','AMEX'],['smbc_business_owners','三井住友'],['ac_mastercard','AC']].forEach(([product,label])=>{
+      const btn=el('button',{class:'phase10-card-btn',type:'button',text:label});
+      btn.addEventListener('click',()=>{phase10State.selectedCardProduct=product;savePhase10State();renderMaterialBar();container.querySelector('.phase10-card-section').replaceWith(buildCardSelected());});
+      buttons.append(btn);
+    });
+    cardSection.append(buttons);
+  }else{
+    const selected=buildCardSelected();container.append(selected);return;
+  }
+  container.append(cardSection);
+}
+function buildCardSelected(){
+  const names={amex:'AMEX',smbc_business_owners:'三井住友ビジネスオーナーズ',ac_mastercard:'ACマスターカード'};
+  const div=el('div',{class:'phase10-card-section phase10-card-selected'});
+  div.append(el('span',{class:'eyebrow',text:'CARD SELECTION'}));
+  div.append(el('b',{text:`選択中：${names[phase10State.selectedCardProduct]||phase10State.selectedCardProduct}`}));
+  const clear=el('button',{class:'secondary small',type:'button',text:'選択を解除'});
+  clear.addEventListener('click',()=>{phase10State.selectedCardProduct=null;savePhase10State();renderMaterialBar();const contentArea=$('#phase10-section-content');if(contentArea&&currentSection)renderPhase10SectionContent(contentArea,currentSection)});
+  div.append(clear);
+  return div;
+}
+function renderPhase10Checklist(container){
+  const checks=el('div',{class:'phase10-checklist'});
+  checks.append(el('span',{class:'eyebrow',text:'COMPLETION CHECKLIST'}));
+  const checkDefs=[
+    {key:'officialLineAdded',label:'公式LINEを追加した'},
+    {key:'cloudsignSent',label:'クラウドサインを送付した'},
+    {key:'cloudsignSigned',label:'クラウドサインへの署名が完了した'}
+  ];
+  for(const {key,label} of checkDefs){
+    const input=el('input',{type:'checkbox'});
+    if(phase10State[key])input.checked=true;
+    input.addEventListener('change',()=>{phase10State[key]=input.checked;savePhase10State()});
+    checks.append(el('label',{class:'phase10-check'},[input,el('span',{text:label})]));
+  }
+  container.append(checks);
+}
+function savePhase10State(){
+  if(!currentSession)return;
+  currentSession.step_state={...(currentSession.step_state||{}),interview_phase_10_meta:phase10State};
+  scheduleProgressSave();
 }
 async function openMaterialsDialog(){
   fillOptions($('#materials-dialog-category'),MATERIAL_OPTIONS.category,$('#materials-dialog-category').value||'');
@@ -591,7 +761,8 @@ async function renderDealHeader(){
   }
 }
 async function enterSalesSession(session){
-  currentSession=session;await loadScriptPhases(currentSession.talk_script_id);renderPhases();const script=catalog.scripts.find(item=>item.id===currentSession.talk_script_id),department=catalog.departments.find(item=>item.id===currentSession.department_id);$('#session-customer').textContent=currentSession.customer_name||'店舗名未入力';$('#session-meta').textContent=[department?.name,script?.name,currentSession.talk_script_version,currentSession.context_data?.appointmentPattern&&`IS：${currentSession.context_data.appointmentPattern}`,currentSession.staff_id&&`担当 ${currentSession.staff_id}`].filter(Boolean).join(' ・ ');selectPhase(phaseById(currentSession.current_phase)?currentSession.current_phase:config.phases[0]?.id);show('assist');loadSessionRecord();loadTalkObjectionNotes();
+  currentSession=session;interviewData={};phase10State={};currentSection=null;
+  await loadScriptPhases(currentSession.talk_script_id);renderPhases();const script=catalog.scripts.find(item=>item.id===currentSession.talk_script_id),department=catalog.departments.find(item=>item.id===currentSession.department_id);$('#session-customer').textContent=currentSession.customer_name||'店舗名未入力';$('#session-meta').textContent=[department?.name,script?.name,currentSession.talk_script_version,currentSession.context_data?.appointmentPattern&&`IS：${currentSession.context_data.appointmentPattern}`,currentSession.staff_id&&`担当 ${currentSession.staff_id}`].filter(Boolean).join(' ・ ');selectPhase(phaseById(currentSession.current_phase)?currentSession.current_phase:config.phases[0]?.id);show('assist');loadSessionRecord();loadTalkObjectionNotes();
   storage.set(ACTIVE_MEETING_KEY,currentSession.id);
   await Promise.all([renderDealHeader(),renderMaterialBar(),FsMeetingNote.open(currentSession.id,currentSession.current_phase)]);
 }

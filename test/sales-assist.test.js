@@ -4,6 +4,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { SalesAssistStore, safeUrl, buildContext, dealStatus } from '../src/sales-assist.js';
+import { INTERVIEW_PHASES } from '../src/interview-sales-script.js';
 import { ObsidianSalesArchive } from '../src/obsidian-sales-archive.js';
 
 function withStore(run) {
@@ -99,7 +100,7 @@ test('前のステップへ戻ってもHPの役割・確認状態・メモを保
 test('公開中スクリプトだけで商談を開始し使用バージョンを履歴へ固定する', () => withStore(store => {
   const catalog = store.catalog();
   assert.equal(catalog.departments.length, 3);
-  assert.equal(catalog.scripts.filter(item => item.status === 'published').length, 1);
+  assert.equal(catalog.scripts.filter(item => item.status === 'published').length, 2);
   const session = store.start({ departmentId:'hd', talkScriptId:'hd-new-ap-20260725', customerName:'版管理テスト' });
   assert.equal(session.department_id, 'hd');
   assert.equal(session.talk_script_id, 'hd-new-ap-20260725');
@@ -371,9 +372,67 @@ test('商談準備と商談記録をObsidian Markdownへ保存できる', () => 
     const libraryFiles=archive.syncLibraries(store);
     assert.ok(libraryFiles.some(file=>file.includes('各種スクリプト')));
     assert.ok(libraryFiles.some(file=>file.includes('アウト返し集')));
-    assert.match(fs.readFileSync(libraryFiles.find(file=>file.includes('アウト返し集')),'utf8'),/無料なのか疑っている/);
+    assert.match(fs.readFileSync(libraryFiles.find(file=>file.includes('アウト返し集')&&file.includes('新AP')),'utf8'),/無料なのか疑っている/);
   } finally {
     store.close();
     fs.rmSync(directory,{recursive:true,force:true});
   }
 });
+
+test('取材用トークスクリプトのフェーズ定義が要件どおりになっている', () => {
+  assert.equal(INTERVIEW_PHASES.length, 10, '取材用トークは10フェーズ');
+  assert.equal(INTERVIEW_PHASES[9].id, 'interview_phase_10', '最後のフェーズはinterview_phase_10（⑩-2は11フェーズ目にしない）');
+  const phase07 = INTERVIEW_PHASES.find(p => p.id === 'interview_phase_07');
+  assert.ok(phase07, '⑦フェーズが存在する');
+  const q07 = phase07.questions.join(' ');
+  const sank = q07.indexOf('sankouin');
+  const art = q07.indexOf('Art Crafter');
+  assert.ok(sank < art && sank >= 0, '⑦の確認事項でsankouinがArt Crafterより前に出る');
+  const phase08 = INTERVIEW_PHASES.find(p => p.id === 'interview_phase_08');
+  assert.equal(phase08.questions.length, 6, '⑧フェーズは6項目のインタビュー確認事項を持つ');
+  assert.ok(INTERVIEW_PHASES.every((p, i) => p.order === i + 1), '全フェーズのorderが1から連番');
+  assert.deepEqual(INTERVIEW_PHASES.map(p => p.id), ['interview_phase_01','interview_phase_02','interview_phase_03','interview_phase_04','interview_phase_05','interview_phase_06','interview_phase_07','interview_phase_08','interview_phase_09','interview_phase_10']);
+});
+
+test('取材用トークスクリプトのフェーズを商談で使用できる', () => withStore(store => {
+  const phases = store.phases('hp-free-interview-talk');
+  assert.equal(phases.length, 10, 'DBから取得した取材用フェーズが10件');
+  assert.equal(phases[0].id, 'interview_phase_01');
+  assert.equal(phases[9].id, 'interview_phase_10');
+  const session = store.start({ talkScriptId:'hp-free-interview-talk', customerName:'取材テスト', staffId:'前川' });
+  assert.equal(session.talk_script_id, 'hp-free-interview-talk');
+}));
+
+test('インタビューデータをCRUDできる', () => withStore(store => {
+  const session = store.start({ talkScriptId:'hp-free-interview-talk', customerName:'インタビューテスト' });
+  assert.deepEqual(store.interviewData(session.id), {}, '初期は空');
+  const saved = store.saveInterviewData(session.id, {
+    openedAtAndReason: '2020年創業、料理が好きで独立',
+    strengthAndConcept: '地元素材を使った家庭料理',
+    recommendedProducts: '季節のランチセット',
+    targetCustomers: '近隣のファミリー層',
+    futureVision: '地域密着のお店として長く続けたい',
+    currentChallenges: '新規集客の手段が口コミだけ'
+  });
+  assert.equal(saved.openedAtAndReason, '2020年創業、料理が好きで独立');
+  assert.equal(Object.keys(saved).length, 6);
+  // 上書き更新
+  const updated = store.saveInterviewData(session.id, { openedAtAndReason: '2019年創業に修正' });
+  assert.equal(updated.openedAtAndReason, '2019年創業に修正');
+  assert.equal(updated.strengthAndConcept, '地元素材を使った家庭料理', '他フィールドは保持される');
+  assert.equal(store.saveInterviewData('存在しない', {}), null);
+}));
+
+test('資料開封ログを保存できる', () => withStore(store => {
+  const session = store.start({ talkScriptId:'hp-free-interview-talk', customerName:'資料ログテスト' });
+  const log = store.logMaterialOpen(session.id, 'fs-main-proposal-deck', 'interview_phase_06', '');
+  assert.ok(log.id);
+  assert.equal(log.meetingId, session.id);
+  assert.equal(log.materialId, 'fs-main-proposal-deck');
+  assert.equal(log.phaseId, 'interview_phase_06');
+  assert.equal(log.sectionId, '');
+  assert.ok(log.openedAt);
+  const logWithSection = store.logMaterialOpen(session.id, 'enepal-official-site', 'interview_phase_10', 'phase_10_provider_check');
+  assert.equal(logWithSection.sectionId, 'phase_10_provider_check');
+  assert.equal(store.logMaterialOpen('存在しない', 'some-material', '', ''), null);
+}));
