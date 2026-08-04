@@ -14,3 +14,4 @@ output/*.csv
 *service-account*.json
 credentials*.json
 config/comdesk-batch.txt
+config/private/

@@ -441,6 +441,24 @@ export class SalesAssistStore {
   }
   activeDeals(limit=200) { return this.deals(limit).filter(item=>!['商談完了','失注','キャンセル'].includes(item.status)); }
   finishedDeals(limit=200) { return this.deals(limit).filter(item=>Boolean(item.finishedAt)||item.status==='キャンセル'); }
+  // 間違えて保存した案件を、関連する商談記録ごと取り消す
+  deleteDeal(id,data={}) {
+    const target=this.deal(id);if(!target)return null;
+    const preparationId=target.preparation?.id||'',sessionId=target.session?.id||'';
+    const summary={dealId:target.deal.dealId||id,storeName:target.deal.storeName,preparationId,sessionId,memos:0,facts:0,objections:0,notes:0};
+    this.db.transaction(()=>{
+      if(sessionId){
+        summary.memos=this.db.prepare('DELETE FROM meeting_memos WHERE meeting_id=?').run(sessionId).changes;
+        summary.facts=this.db.prepare('DELETE FROM sales_facts WHERE session_id=?').run(sessionId).changes;
+        summary.objections=this.db.prepare('DELETE FROM ai_suggestions WHERE session_id=?').run(sessionId).changes;
+        summary.notes=this.db.prepare('DELETE FROM talk_script_objection_notes WHERE session_id=?').run(sessionId).changes;
+        this.db.prepare('DELETE FROM sales_sessions WHERE id=?').run(sessionId);
+      }
+      if(preparationId)this.db.prepare('DELETE FROM sales_preparations WHERE id=?').run(preparationId);
+    })();
+    this.audit(data.actor||'FS','delete','sales_deal',summary.dealId,summary);
+    return summary;
+  }
   deal(id) {
     const preparation=this.db.prepare('SELECT * FROM sales_preparations WHERE deal_id=? OR id=? OR session_id=?').get(id,id,id);
     const prepared=preparation?this.preparation(preparation.id):null;

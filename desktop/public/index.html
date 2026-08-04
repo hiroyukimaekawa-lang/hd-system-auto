@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ja">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HD事業部 統合システム</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/css/fs-meeting.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HD事業部 統合システム</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/css/fs-meeting.css"><link rel="stylesheet" href="/css/fs-materials.css"></head>
 <body>
   <header class="topbar">
     <button class="brand nav-button" data-view="deals"><img src="/assistant-icon.png" alt=""><span><b>HD事業部</b><small>統合システム</small></span></button>
@@ -65,6 +65,7 @@
         <div id="deal-header-links" class="deal-header-links"></div>
         <div id="deal-header-notes" class="deal-header-notes"></div>
       </header>
+      <section id="material-bar" class="material-bar"></section>
       <div class="assist-grid">
         <aside class="phase-rail"><span class="eyebrow">SALES FLOW</span><h2>商談フロー</h2><div id="phase-list"></div></aside>
         <section class="script-panel"><div class="phase-label" id="phase-label">PHASE</div><h1 id="phase-name">フェーズを選択</h1><div class="goal"><small>このフェーズの目的</small><p id="phase-goal">—</p></div>
@@ -88,13 +89,21 @@
     </section>
 
     <section id="view-templates" class="view narrow">
-      <div class="dashboard-head"><div><span class="eyebrow">TALK SCRIPT TEMPLATE</span><h1>トークスクリプトテンプレ</h1><p>現在登録されているトークスクリプトを確認する画面です。内容の編集は管理者のみ行ってください。</p></div><button id="toggle-script-admin" class="secondary">管理メニューを表示</button></div>
+      <div class="dashboard-head"><div><span class="eyebrow">TALK SCRIPT TEMPLATE</span><h1>トークスクリプトテンプレ</h1><p>現在登録されているトークスクリプトと、商談で使う資料を確認する画面です。内容の編集は管理者のみ行ってください。</p></div><button id="toggle-script-admin" class="secondary">管理メニューを表示</button></div>
+      <div class="template-tabs"><button type="button" data-template-tab="scripts" class="active">トークスクリプト</button><button type="button" data-template-tab="materials">商談資料ライブラリ</button></div>
+      <div id="template-tab-materials" hidden>
+        <div class="material-admin-head"><div><span class="eyebrow">SALES MATERIALS</span><h2>商談資料ライブラリ</h2><p class="lead">商談中に使う資料をここで管理します。URLを変更してもソースコードの修正は不要です。</p></div><button id="open-material-form" class="primary">＋ 資料を追加</button></div>
+        <div class="materials-filter"><label>カテゴリ<select id="material-filter-category"></select></label><label>商材<select id="material-filter-product"></select></label><label>状態<select id="material-filter-active"><option value="">すべて</option><option value="true">有効</option><option value="false">停止中</option></select></label><label>検索<input id="material-filter-keyword" placeholder="資料名・説明で検索"></label></div>
+        <div id="material-admin-list" class="material-list"></div>
+      </div>
+      <div id="template-tab-scripts">
       <div id="home-template-list" class="home-template-list"></div>
       <div id="script-admin" hidden>
         <div class="admin-title-row"><div><span class="eyebrow">TALK SCRIPT MANAGEMENT</span><h2>トークスクリプト管理（管理者向け）</h2><p class="lead">この端末にトークスクリプトを追加し、タイトル・公開状態・バージョンを管理します。</p></div><button id="open-create-script" class="primary">＋ トークスクリプトを追加</button></div>
         <div class="filter-row"><label>事業部<select id="admin-department-filter"><option value="">すべて</option></select></label><label>状態<select id="admin-status-filter"><option value="">すべて</option><option value="published">公開中</option><option value="preparing">準備中</option><option value="unregistered">未登録</option></select></label></div>
         <div id="admin-script-cards" class="script-cards compact"></div>
         <div id="phase-editor" hidden><h2 id="phase-editor-title">トークスクリプト・フェーズ編集</h2><div class="admin-layout"><div id="admin-phase-list" class="admin-list"></div><form id="phase-form" class="panel"><input type="hidden" name="id"><label>フェーズ名<input name="name" disabled></label><label>目的<textarea name="goal" rows="2"></textarea></label><label>基本スクリプト<textarea name="baseScript" rows="8"></textarea></label><label>必須確認項目（1行1項目）<textarea name="requiredQuestions" rows="4"></textarea></label><label>次へ進む条件<textarea name="transitionConditions" rows="2"></textarea></label><label>禁止表現（1行1項目）<textarea name="prohibitedPhrases" rows="4"></textarea></label><div class="actions"><span id="admin-message"></span><button class="primary" type="submit">下書きとして保存</button></div></form></div></div>
+      </div>
       </div>
     </section>
 
@@ -114,10 +123,27 @@
   <dialog id="create-script-dialog" class="create-script-dialog"><form id="create-script-form"><span class="eyebrow">NEW TALK SCRIPT</span><h2>トークスクリプトを追加</h2><p>現在の承認済みHD商談フローをひな形として、この端末内に新しいスクリプトを作成します。</p><label>トークスクリプト名<input name="name" required maxlength="100" placeholder="例：IS新アポ向けトーク"></label><label>対象商材<input name="products" required placeholder="例：ホームページ無料制作、エネパル"></label><div class="create-script-grid"><label>対象顧客<input name="customerType" value="店舗オーナー・小規模事業者"></label><label>バージョン<input name="version" placeholder="例：2026/07/30"></label></div><div class="local-save-note"><b>保存先</b><span>このMac内のHD AIアシスタント専用データベース</span></div><div class="actions"><button type="button" id="close-create-script" class="secondary">キャンセル</button><button type="submit" class="primary">追加して公開</button></div></form></dialog>
   <dialog id="preparation-dialog" class="preparation-dialog"><div class="preparation-detail"><header><div><span>案件情報</span><h2 id="prep-detail-name"></h2><small id="prep-detail-meta"></small></div><button id="close-preparation" aria-label="閉じる">×</button></header><div class="prep-detail-body"><div id="prep-detail-header" class="deal-header embedded"><div id="prep-detail-header-meta" class="deal-header-meta"></div><div id="prep-detail-header-links" class="deal-header-links"></div><div id="prep-detail-header-notes" class="deal-header-notes"></div></div><section class="meeting-schedule"><div><small>商談予定日時</small><b id="prep-detail-meeting"></b></div><div><small>商談まで</small><b id="prep-detail-countdown"></b></div></section><section class="prep-summary-grid"><article class="temperature-card"><small>ISから見た温度感</small><b id="prep-detail-temperature"></b><p id="prep-detail-temperature-reason"></p></article><article><small>現在の課題</small><p id="prep-detail-issues"></p></article><article><small>刺さりそうなポイント</small><p id="prep-detail-hooks"></p></article></section><section class="handoff-card"><small>ISからの引き継ぎ</small><p id="prep-detail-handoff"></p></section><section class="next-action-editor"><div><span class="eyebrow">NEXT ACTION</span><h3>この案件の次の動き</h3></div><label>次の動き<select id="prep-next-action"><option value="">未設定</option><option>商談を実施</option><option>事前調査を追加</option><option>ISへ追加確認</option><option>決裁者を含めた日程調整</option><option>電気明細を準備してもらう</option><option>再商談</option><option>その他</option></select></label><label>予定日時<input id="prep-next-action-at" type="datetime-local"></label><button id="save-next-action" class="secondary strong">次の動きを保存</button></section><section class="script-focus"><div><span class="eyebrow">SCRIPT FOCUS</span><h3>この案件で特に見るスクリプト</h3><p>案件情報から、商談前に確認しておきたい箇所を表示しています。</p></div><div id="prep-focus-phases"></div></section><div class="actions"><button id="prep-edit-info" class="secondary">案件情報を編集</button><button id="prep-view-script" class="secondary">スクリプト全体を見る</button><button id="prep-open-session" class="primary">この案件で商談を開始 →</button></div></div></div></dialog>
   <dialog id="result-dialog" class="preparation-dialog"><div class="preparation-detail"><header><div><span>商談結果と振り返り</span><h2 id="result-detail-name"></h2><small id="result-detail-meta"></small></div><button id="close-result" aria-label="閉じる">×</button></header><div class="prep-detail-body"><div id="result-detail-header" class="deal-header embedded"><div id="result-detail-header-meta" class="deal-header-meta"></div><div id="result-detail-header-links" class="deal-header-links"></div><div id="result-detail-header-notes" class="deal-header-notes"></div></div><div id="result-detail-body" class="result-detail-body"></div><div class="actions"><button id="close-result-bottom" class="secondary">閉じる</button></div></div></div></dialog>
+  <dialog id="materials-dialog" class="materials-dialog"><div class="materials-shell"><header><div><span class="eyebrow">SALES MATERIALS</span><h2>商談資料</h2><small id="materials-dialog-meta"></small></div><button id="close-materials" aria-label="閉じる">×</button></header><div class="materials-filter"><label>カテゴリ<select id="materials-dialog-category"></select></label><label>商材<select id="materials-dialog-product"></select></label><label>検索<input id="materials-dialog-keyword" placeholder="資料名・説明で検索"></label></div><div id="materials-dialog-list" class="material-list"></div></div></dialog>
+  <dialog id="material-form-dialog" class="create-script-dialog"><form id="material-form"><span class="eyebrow">SALES MATERIAL</span><h2 id="material-form-title">資料を追加</h2><p>URLはこの端末のデータベースへ保存され、ソースコードには残りません。</p><div class="material-form-grid">
+    <label>資料ID<input name="id" required maxlength="64" placeholder="例：amex-application-flow" pattern="[A-Za-z0-9_-]+"></label>
+    <label>資料名<input name="title" required maxlength="120"></label>
+    <label class="wide">URL（https のみ）<input name="url" required inputmode="url" placeholder="https://"></label>
+    <label>カテゴリ<select name="category"></select></label>
+    <label>商材<select name="product"></select></label>
+    <label>ファイル種別<select name="sourceType"></select></label>
+    <label>公開範囲<select name="visibility"></select></label>
+    <label>表示順<input name="sortOrder" type="number" value="100"></label>
+    <label>状態<select name="active"><option value="true">有効</option><option value="false">停止中</option></select></label>
+    <label class="wide">用途の説明<textarea name="description" rows="2"></textarea></label>
+    <label class="wide">フェーズタグ（カンマ区切り）<input name="phaseTags" placeholder="例：card_amex, application"></label>
+    <label class="wide">元ファイル名<input name="sourceTitle"></label>
+  </div><div class="actions"><span id="material-form-message" class="muted small"></span><button type="button" id="close-material-form" class="secondary">キャンセル</button><button type="submit" class="primary">保存</button></div></form></dialog>
+  <dialog id="delete-deal-dialog" class="rename-script-dialog"><form id="delete-deal-form" method="dialog"><span class="eyebrow">DELETE DEAL</span><h2>この案件を削除しますか？</h2><p id="delete-deal-target"></p><p id="delete-deal-detail" class="muted small"></p><p class="muted small">この操作は取り消せません。</p><div class="actions"><button value="cancel" class="secondary">キャンセル</button><button value="delete" class="danger">削除する</button></div></form></dialog>
   <dialog id="handoff-dialog" class="handoff-dialog"><div><header><div><span class="eyebrow">HD HANDOFF FORMAT</span><h2>進捗管理シート引き継ぎFMT</h2></div><button id="close-handoff" aria-label="閉じる">×</button></header><textarea id="handoff-output" rows="26" readonly></textarea><div class="actions"><span id="copy-status"></span><button id="copy-handoff" class="primary">FMTをコピー</button></div></div></dialog>
   <div id="toast" role="status"></div>
   <script src="/js/fs-sidebar.js"></script>
   <script src="/js/fs-deal-header.js"></script>
   <script src="/js/fs-meeting-note.js"></script>
+  <script src="/js/fs-materials.js"></script>
   <script src="/app.js"></script>
 </body></html>

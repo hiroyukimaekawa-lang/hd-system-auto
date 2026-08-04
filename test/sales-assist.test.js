@@ -258,6 +258,81 @@ test('案件情報を編集すると進行中の商談へ反映し、終了後�
   assert.equal(finished.isNotes, '初回のIS備考', '終了後は商談当時のスナップショットを表示する');
 }));
 
+test('間違えて保存した案件を商談記録ごと削除でき、他案件は残る', () => withStore(store => {
+  const keep = store.prepare({ talkScriptId:'hd-new-ap-20260725', customerName:'残す店舗' });
+  const wrong = store.prepare({ talkScriptId:'hd-new-ap-20260725', customerName:'重複保存した店舗' });
+  const session = store.openPreparation(wrong.id);
+  store.addMeetingMemo(session.id, { content:'誤って開始した商談のメモ' });
+  store.addFact(session.id, { category:'commitment', value:'誤登録' });
+  store.suggest({ sessionId:session.id, phaseId:'free_conditions', objectionId:'free_distrust', statement:'誤登録' });
+  store.addObjectionNote(session.talk_script_id, { sessionId:session.id, memo:'誤登録のメモ' });
+  assert.equal(store.deals().length, 2);
+
+  const removed = store.deleteDeal(wrong.deal_id, { actor:'前川' });
+  assert.equal(removed.storeName, '重複保存した店舗');
+  assert.equal(removed.memos, 1);
+  assert.equal(removed.facts, 1);
+  assert.equal(removed.objections, 1);
+  assert.equal(removed.notes, 1);
+
+  const remaining = store.deals();
+  assert.equal(remaining.length, 1);
+  assert.equal(remaining[0].storeName, '残す店舗');
+  assert.equal(store.deal(wrong.deal_id), null);
+  assert.equal(store.session(session.id), null);
+  assert.equal(store.meetingMemos(session.id), null);
+  assert.equal(store.sessionRecord(session.id).facts.length, 0);
+  assert.equal(store.objectionNotes(session.talk_script_id).length, 0);
+  assert.ok(store.deal(keep.deal_id), '他の案件は残る');
+  assert.equal(store.deleteDeal('存在しないID'), null);
+  assert.ok(store.db.prepare("SELECT * FROM audit_logs WHERE action='delete' AND entity_type='sales_deal'").get());
+}));
+
+test('商談を開始していない案件も削除できる', () => withStore(store => {
+  const prepared = store.prepare({ talkScriptId:'hd-new-ap-20260725', customerName:'商談前の誤登録' });
+  const removed = store.deleteDeal(prepared.id);
+  assert.equal(removed.sessionId, '');
+  assert.equal(removed.memos, 0);
+  assert.equal(store.deals().length, 0);
+  assert.equal(store.preparation(prepared.id), null);
+}));
+
+test('案件を削除するとObsidianのノートも消え、他案件のノートは残る', () => {
+  const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'hd-obsidian-delete-'));
+  const vault = path.join(directory, 'vault');
+  const obsidianConfig = path.join(directory, 'obsidian.json');
+  fs.mkdirSync(vault, { recursive:true });
+  fs.writeFileSync(obsidianConfig, JSON.stringify({ vaults:{ test:{ path:vault } } }));
+  const store = new SalesAssistStore(path.join(directory, 'sales.sqlite'));
+  try {
+    const archive = new ObsidianSalesArchive({ vaultId:'test', folder:'HD', obsidianConfigPath:obsidianConfig });
+
+    const keep = store.prepare({ customerName:'残す店舗' });
+    const keepNote = archive.syncPreparation(store, keep.id);
+
+    const wrong = store.prepare({ customerName:'重複保存した店舗' });
+    const wrongPrepNote = archive.syncPreparation(store, wrong.id);
+    const session = store.openPreparation(wrong.id);
+    store.addMeetingMemo(session.id, { content:'誤登録のメモ' });
+    const wrongSessionNote = archive.syncSession(store, session.id);
+    assert.ok(fs.existsSync(wrongPrepNote) && fs.existsSync(wrongSessionNote));
+
+    // 書き出し後に店舗名を変えても、ファイル名末尾のIDで対象を特定できる
+    store.editPreparation(wrong.id, { customerName:'名前を変えた店舗' });
+
+    const removed = store.deleteDeal(wrong.deal_id);
+    const files = archive.removeDeal(removed);
+    assert.equal(files.length, 2);
+    assert.equal(fs.existsSync(wrongPrepNote), false);
+    assert.equal(fs.existsSync(wrongSessionNote), false);
+    assert.ok(fs.existsSync(keepNote), '他案件のノートは残る');
+    assert.deepEqual(archive.removeDeal({ preparationId:'', sessionId:'' }), []);
+  } finally {
+    store.close();
+    fs.rmSync(directory, { recursive:true, force:true });
+  }
+});
+
 test('URL検証とステータス判定が要件どおり動く', () => {
   assert.equal(safeUrl('https://example.com/a'), 'https://example.com/a');
   assert.equal(safeUrl('example.com'), 'https://example.com/');
