@@ -54,7 +54,7 @@ function fsMaterialCard(material,{onCopy,onEdit,onToggle}={}){
   return fsMaterialNode('article',{class:`material-card${material.active?'':' stopped'}`},[head,meta,actions]);
 }
 // 店舗情報ヘッダー直下の資料バー。最大4件で、右側メモ欄は圧迫しない。
-function renderFsMaterialBar(container,materials,{onOpenAll,message}={}){
+function renderFsMaterialBar(container,materials,{onOpenAll,onOpen,message}={}){
   if(!container)return;
   container.textContent='';
   const label=fsMaterialNode('span',{class:'material-bar-label',text:'このフェーズで使う資料'});
@@ -64,7 +64,9 @@ function renderFsMaterialBar(container,materials,{onOpenAll,message}={}){
     if(!url)continue;
     const link=fsMaterialLink(material,material.title);
     link.classList.add('material-chip');
+    link.dataset.materialId=material.id;
     if(material.visibility!=='customer_shareable')link.classList.add('internal');
+    if(onOpen)link.addEventListener('click',()=>onOpen(material));
     list.append(link);
   }
   if(!materials.length)list.append(fsMaterialNode('span',{class:'material-bar-empty',text:message||'このフェーズに紐づく資料はありません'}));

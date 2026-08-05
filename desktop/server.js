@@ -141,14 +141,22 @@ const server = http.createServer(async (request, response) => {
       const id = decodeURIComponent(url.pathname.split('/')[4]);
       const session = sales.session(id);
       if (!session) return json(response, 404, { ok:false, text:'商談が見つかりません' });
+      const tagMap = phaseTagMap(session.talk_script_id);
+      const phaseId = url.searchParams.get('phaseId') || session.current_phase;
+      const sectionId = url.searchParams.get('sectionId') || '';
+      const effectivePhaseId = sectionId && tagMap[sectionId] !== undefined ? sectionId : phaseId;
+      const cardProductOverride = url.searchParams.get('cardProductOverride') || '';
+      const cardProductMap = { amex:'AMEX', smbc_business_owners:'三井住友ビジネスオーナーズ', ac_mastercard:'ACマスターカード' };
+      const products = cardProductOverride ? (cardProductMap[cardProductOverride] || '') : (session.context_data?.targetProducts || '');
       const result = materials.phaseMaterials({
-        phaseId:url.searchParams.get('phaseId') || session.current_phase,
-        phaseTagMap:phaseTagMap(session.talk_script_id),
-        products:session.context_data?.targetProducts || '',
-        viewer:viewerOf(url), limit:Number(url.searchParams.get('limit')) || 4
+        phaseId:effectivePhaseId, phaseTagMap:tagMap,
+        products, viewer:viewerOf(url), limit:Number(url.searchParams.get('limit')) || 4
       });
       return json(response, 200, { ok:true, ...result });
     }
+    if (request.method === 'GET' && /^\/api\/fs\/meetings\/[^/]+\/interview$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const session=sales.session(id); if(!session) return json(response,404,{ok:false,text:'商談が見つかりません'}); return json(response,200,{ok:true,data:sales.interviewData(id)}); }
+    if (request.method === 'PUT' && /^\/api\/fs\/meetings\/[^/]+\/interview$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const saved=sales.saveInterviewData(id,body); return json(response,saved?200:404,{ok:Boolean(saved),data:saved}); }
+    if (request.method === 'POST' && /^\/api\/fs\/materials\/[^/]+\/open-log$/.test(request.url)) { const body=await readBody(request); const materialId=decodeURIComponent(request.url.split('/')[4]); const log=sales.logMaterialOpen(body.meetingId,materialId,body.phaseId||'',body.sectionId||''); return json(response,log?201:404,{ok:Boolean(log),log}); }
     if (request.method === 'POST' && request.url === '/api/fs/materials/import') { const body = await readBody(request); const result = materials.importAll(body.materials || [], { actor:body.actor || 'FS' }); return json(response, result.errors.length ? 400 : 200, { ok:!result.errors.length, ...result, text:result.errors.join('\n') }); }
     // 不正なURLやIDは400で返す（500にせず入力の誤りとして扱う）
     if (request.method === 'POST' && request.url === '/api/fs/materials') { const body = await readBody(request); try { return json(response, 201, { ok:true, material:materials.save(body) }); } catch (error) { return json(response, 400, { ok:false, text:error.message }); } }

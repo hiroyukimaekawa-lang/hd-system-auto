@@ -77,7 +77,45 @@ body.sidebar-collapsed main{margin-left:76px}
 .deal-notes-toggle{justify-self:start;border:0;background:none;color:var(--green);font-size:12px;font-weight:700;cursor:pointer;padding:0}
 .deal-header.embedded{border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:14px;position:static}
 
+/* ===== 商談中は上部を削り、スクリプトとメモへ縦横を回す ===== */
+body.fs-meeting-active .topbar{display:none}
+body.fs-meeting-active main{min-height:100vh}
+body.fs-meeting-active .sidebar{top:0}
+@media(min-width:1051px){
+  body.fs-meeting-active .sidebar{width:220px}
+  body.fs-meeting-active main{margin-left:220px}
+  body.sidebar-collapsed.fs-meeting-active .sidebar{width:76px}
+  body.sidebar-collapsed.fs-meeting-active main{margin-left:76px}
+}
+body.fs-meeting-active .assist-view.active{height:100vh}
+
+/* 事前情報：固定せず、通常表示で80〜120pxに収める */
+.deal-preinfo{position:static;flex:0 0 auto;background:var(--panel);border-bottom:1px solid var(--line);padding:9px 3vw 8px;display:grid;gap:5px;max-height:132px;overflow:hidden}
+.preinfo-line{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;min-width:0}
+.preinfo-line>b{font:700 19px Georgia,"Yu Mincho",serif}
+#deal-header-owner{color:var(--muted);font-size:13px}
+.deal-preinfo .deal-header-links{display:flex;gap:6px;flex-wrap:wrap}
+.deal-preinfo .deal-link{padding:4px 11px;font-size:11px}
+.preinfo-detail{margin-left:auto}
+.preinfo-detail>summary{cursor:pointer;font-size:11px;color:var(--green);font-weight:700;list-style:none}
+.preinfo-detail>summary::-webkit-details-marker{display:none}
+.preinfo-detail[open]{position:relative}
+.preinfo-detail-body{position:absolute;right:0;top:22px;z-index:14;background:var(--panel);border:1px solid var(--line);border-radius:12px;box-shadow:var(--shadow);padding:12px 14px;min-width:320px;max-width:min(560px,80vw);display:grid;gap:8px}
+.preinfo-detail-body small{color:var(--muted);font-size:11px;line-height:1.5}
+.deal-preinfo .deal-header-notes{background:none;border:0;border-radius:0;padding:0;display:flex;align-items:baseline;gap:8px}
+.deal-preinfo .deal-header-notes small{flex:0 0 auto}
+.deal-preinfo .deal-notes-body{font-size:12.5px;line-height:1.5;flex:1;min-width:0}
+.deal-preinfo .deal-notes-body.clamped{-webkit-line-clamp:2}
+.deal-preinfo .deal-notes-toggle{flex:0 0 auto;font-size:11px}
+
+/* 右下の固定操作バー。スクリプトとメモ入力を隠さない高さに抑える */
+.meeting-action-bar{position:fixed;right:16px;bottom:14px;z-index:16;display:none;gap:8px;align-items:center;height:50px;padding:0 12px;background:#ffffffee;border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);backdrop-filter:blur(8px)}
+body.fs-meeting-active .meeting-action-bar{display:flex}
+.meeting-action-bar button{border:0;border-radius:9px;padding:9px 15px;font-weight:700;font-size:13px;cursor:pointer}
+body.fs-meeting-active .note-column{padding-bottom:64px}
+
 .assist-view.active .assist-grid{flex:1;min-height:0;display:grid;grid-template-columns:260px minmax(400px,1fr) 400px;overflow:hidden}
+body.fs-meeting-active .assist-view.active .assist-grid{grid-template-columns:minmax(210px,250px) minmax(520px,1fr) minmax(320px,380px)}
 .assist-view.active .phase-rail,.assist-view.active .script-panel,.assist-view.active .note-column{min-height:0;overflow-y:auto}
 /* 幅の狭いフローでもフェーズ名が切れないようにする */
 .assist-view.active .phase-rail{overflow-x:hidden;padding:22px 16px}
@@ -107,12 +145,32 @@ body.sidebar-collapsed main{margin-left:76px}
   .meeting-note{padding:14px 16px 12px}
   #meeting-memo-input{min-height:88px}
 }
+/* 1100〜1439px：フェーズ一覧とメモを詰め、中央のスクリプトへ残り幅を回す */
+@media(max-width:1439px){
+  body.fs-meeting-active .assist-view.active .assist-grid{grid-template-columns:210px minmax(0,1fr) minmax(300px,340px)}
+  .deal-preinfo{padding:8px 18px 7px}
+  .preinfo-line>b{font-size:17px}
+}
 @media(max-width:1200px){
   .assist-view.active .assist-grid{grid-template-columns:170px minmax(320px,1fr) 320px}
   .deal-header{padding:12px 18px 10px}
   .deal-identity b{font-size:19px}
 }
+/* 1100px未満：サイドバーを折りたたみ、スクリプト表示を優先する */
+@media(max-width:1100px){
+  body.fs-meeting-active .sidebar{width:76px;padding:18px 9px}
+  body.fs-meeting-active .sidebar button{justify-content:center;padding:13px;font-size:0}
+  body.fs-meeting-active .sidebar button span{width:auto;font-size:18px}
+  body.fs-meeting-active main{margin-left:76px}
+  body.fs-meeting-active .assist-view.active .assist-grid{grid-template-columns:minmax(0,1fr) minmax(280px,320px)}
+  body.fs-meeting-active .assist-view.active .phase-rail{display:none}
+}
 @media(max-width:900px){
+  body.fs-meeting-active .assist-view.active{height:auto;overflow:visible}
+  body.fs-meeting-active .assist-view.active .assist-grid{grid-template-columns:1fr}
+  body.fs-meeting-active .assist-view.active .phase-rail{display:block}
+  body.fs-meeting-active main{padding-bottom:70px}
+  .deal-preinfo{max-height:none}
   .assist-view.active{height:auto;overflow:visible}
   .assist-view.active .assist-grid{grid-template-columns:1fr;overflow:visible}
   .assist-view.active .phase-rail,.assist-view.active .script-panel,.assist-view.active .note-column{overflow:visible}
@@ -121,3 +179,55 @@ body.sidebar-collapsed main{margin-left:76px}
   .note-column{border-left:0;border-top:1px solid var(--line)}
   .meeting-note{position:static}
 }
+
+/* インタビューフォーム（⑧フェーズ）*/
+.interview-form-header{margin:18px 0 10px}
+.interview-form-header h3{margin:4px 0;font:700 17px Georgia,"Yu Mincho",serif}
+.interview-form-header p{margin:0;font-size:13px;color:var(--muted)}
+.interview-form{display:grid;gap:12px}
+.interview-field{display:grid;gap:5px;font-size:12px;color:var(--muted)}
+.interview-field span{font-weight:700;color:var(--ink);font-size:13px}
+.interview-field textarea{padding:10px 12px;border:1px solid var(--line);border-radius:9px;background:var(--panel);color:var(--ink);resize:vertical;line-height:1.6;font-size:14px;width:100%}
+
+/* インタビュー回答参照（⑨フェーズ）*/
+.interview-answers-header{margin:18px 0 10px}
+.interview-answers-header h3{margin:4px 0;font:700 17px Georgia,"Yu Mincho",serif}
+.interview-answers{display:grid;gap:10px;background:#f7faf6;border:1px solid var(--line);border-radius:12px;padding:14px 16px}
+.interview-answer-item{display:grid;gap:3px}
+.interview-answer-item small{font-size:11px;color:var(--muted);font-weight:700}
+.interview-answer-item p{margin:0;font-size:14px;white-space:pre-wrap;line-height:1.55}
+
+/* ⑩フェーズセクションナビ */
+.phase10-section-nav{margin:18px 0 12px}
+.phase10-nav-header{display:flex;align-items:center;gap:12px;margin-bottom:10px}
+.phase10-nav-header span{font-size:13px;color:var(--muted)}
+.phase10-nav-buttons{display:flex;flex-wrap:wrap;gap:8px}
+.phase10-section-btn{border:1px solid var(--line);border-radius:9px;padding:8px 14px;font-size:13px;font-weight:600;cursor:pointer;background:var(--panel);color:var(--ink)}
+.phase10-section-btn.active{background:var(--green);color:#fff;border-color:var(--green)}
+.phase10-section-content{margin-top:14px}
+.phase10-section-header{margin-bottom:8px}
+.phase10-section-header b{font-size:15px;font-weight:700}
+.phase10-section-script{margin-top:8px}
+
+/* ⑩電力会社確認フォーム */
+.phase10-state-form{background:#f7faf6;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:14px;display:grid;gap:10px}
+.phase10-state-field{display:grid;gap:5px;font-size:12px;color:var(--muted)}
+.phase10-state-field small{font-weight:700;color:var(--ink);font-size:12px}
+.phase10-state-field input,.phase10-state-field select{padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);color:var(--ink);font-size:14px}
+
+/* ⑩カード選択 */
+.phase10-card-section{background:#f7faf6;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:14px;display:grid;gap:10px}
+.phase10-card-buttons{display:flex;gap:10px;flex-wrap:wrap}
+.phase10-card-btn{border:1px solid var(--line);border-radius:9px;padding:10px 20px;font-size:14px;font-weight:700;cursor:pointer;background:var(--panel)}
+.phase10-card-btn:hover{background:#e8eee8}
+.phase10-card-selected b{font-size:15px;font-weight:700}
+
+/* ⑩完了チェックリスト */
+.phase10-checklist{background:#f7faf6;border:1px solid var(--line);border-radius:12px;padding:14px 16px;margin-top:14px;display:grid;gap:8px}
+.phase10-check{display:flex;align-items:center;gap:9px;cursor:pointer;font-size:14px}
+.phase10-check input{width:18px;height:18px;accent-color:var(--green)}
+
+/* スクリプトを読み進めたら事前情報を画面外へ送る（固定はしない） */
+body.fs-meeting-active.preinfo-hidden .deal-preinfo{display:none}
+/* 閉じている「詳細」の中身は絶対配置でも描画しない（上部に商材・ステータス等を出さない） */
+.preinfo-detail:not([open]) .preinfo-detail-body{display:none}
