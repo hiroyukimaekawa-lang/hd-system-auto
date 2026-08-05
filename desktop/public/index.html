@@ -56,13 +56,12 @@
     </section>
 
     <section id="view-assist" class="view assist-view">
-      <header id="deal-header" class="deal-header">
-        <div class="deal-header-top">
-          <div class="deal-identity"><span class="live-dot"></span><b id="session-customer">商談が開始されていません</b><span id="deal-header-owner"></span></div>
-          <div class="deal-header-actions"><small id="session-meta">商談準備から開始してください</small><button id="pause-button" class="secondary">中断</button><button id="notes-button" class="secondary">メモ・結果</button><button id="finish-button" class="danger">商談を終了</button></div>
+      <header id="deal-header" class="deal-preinfo">
+        <div class="preinfo-line">
+          <b id="session-customer">商談が開始されていません</b><span id="deal-header-owner"></span>
+          <div id="deal-header-links" class="deal-header-links"></div>
+          <details id="deal-detail" class="preinfo-detail"><summary>詳細</summary><div class="preinfo-detail-body"><div id="deal-header-meta" class="deal-header-meta"></div><small id="session-meta">商談準備から開始してください</small></div></details>
         </div>
-        <div id="deal-header-meta" class="deal-header-meta"></div>
-        <div id="deal-header-links" class="deal-header-links"></div>
         <div id="deal-header-notes" class="deal-header-notes"></div>
       </header>
       <section id="material-bar" class="material-bar"></section>
@@ -87,6 +86,7 @@
           <aside id="assist-panel" class="assist-panel"><section class="scratch-assist"><span class="eyebrow">REACTION ANALYSIS</span><h2>反応・言質のAI整理</h2><p>質問したときの反応、相手が実際に言ったこと、迷っている条件をそのまま入力してください。</p><textarea id="scratch-memo" rows="6" placeholder="例：無料なのはかなり疑っている。「HP自体は作りたい」と発言。電気は今の会社から変えたくなさそう。奥様への確認が必要。"></textarea><button id="save-scratch-analysis" class="primary full">反応と言質を整理して保存</button><div id="predicted-objections"></div><details class="talk-objection-book"><summary>このトークの反応・アウト返し集</summary><div id="talk-objection-notes"></div></details></section><section class="manual-objection"><span class="eyebrow">SALES ASSIST</span><h2>アウト返し</h2><label>アウト分類<select id="objection-select"></select></label><label>相手の発言<textarea id="customer-statement" rows="4" placeholder="相手の言葉をそのまま入力"></textarea></label><button id="suggest-button" class="secondary strong full">返答候補を表示</button><div id="suggest-status" class="muted small"></div><div id="suggestions"></div></section><section class="live-record"><div><span class="eyebrow">LIVE RECORD</span><h2>商談中の記録</h2><p>相手から確認できた事実や言質を、その場で保存します。</p></div><label>記録の種類<select id="fact-category"><option value="commitment">相手の言質・合意</option><option value="proposed_products">提案商材</option><option value="acquired_products">獲得商材</option><option value="electricity">電気情報</option><option value="referral">紹介案件</option><option value="progress">進捗</option><option value="next_action">次回アクション</option><option value="log">商談ログ</option><option value="hp_purpose">HPの作成目的</option><option value="hp_details">HPの具体的内容</option><option value="decision_maker">決裁者情報</option></select></label><label>確認できた内容<textarea id="fact-value" rows="3" placeholder="相手の発言をできるだけそのまま記録"></textarea></label><button id="save-fact" class="secondary strong full">記録を追加</button><div id="live-facts" class="live-facts"></div></section><details class="objection-memory"><summary>この商談で発生したアウト</summary><div id="session-objections"></div></details></aside>
         </aside>
       </div>
+      <div id="meeting-action-bar" class="meeting-action-bar"><button id="pause-button" class="secondary">中断</button><button id="notes-button" class="secondary">結果</button><button id="finish-button" class="danger">商談終了</button></div>
     </section>
 
     <section id="view-templates" class="view narrow">

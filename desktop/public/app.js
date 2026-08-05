@@ -33,7 +33,16 @@ let toastTimer;
 const toast=text=>{const el=$('#toast');el.textContent=text;el.classList.add('show');clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),text.length>35?6500:2400)};
 FsSidebar.render($('#fs-sidebar'));
 FsSidebar.mark('deals');
-function show(view){$$('.view').forEach(node=>node.classList.toggle('active',node.id===`view-${view}`));FsSidebar.mark(view);$('#user-menu').open=false;window.scrollTo(0,0)}
+// 事前情報は固定せず、スクリプトを読み進めると画面外へ送ってスクリプト領域を広げる
+function bindPreinfoAutoHide(){
+  const panel=$('.script-panel');
+  if(!panel)return;
+  panel.addEventListener('scroll',()=>{
+    document.body.classList.toggle('preinfo-hidden',panel.scrollTop>40);
+  },{passive:true});
+}
+// 商談画面だけグローバルヘッダーを隠し、縦方向をスクリプトへ回す
+function show(view){$$('.view').forEach(node=>node.classList.toggle('active',node.id===`view-${view}`));document.body.classList.toggle('fs-meeting-active',view==='assist');FsSidebar.mark(view);$('#user-menu').open=false;window.scrollTo(0,0)}
 document.addEventListener('click',event=>{const view=event.target.closest('[data-view]')?.dataset.view;if(view)show(view)});
 const phaseLabelOf=id=>config.phases.find(phase=>phase.id===id)?.name||'';
 function phaseById(id){return config.phases.find(phase=>phase.id===id)}
@@ -562,14 +571,14 @@ async function logMaterialOpen(materialId){
 }
 async function renderMaterialBar(){
   const bar=$('#material-bar');
-  if(!currentSession)return FsMaterials.renderBar(bar,[],{message:'商談を開始すると、フェーズに合う資料が表示されます'});
+  if(!currentSession)return FsMaterials.renderBar(bar,[],{message:'商談開始後に表示されます'});
   // 資料の取得に失敗しても商談画面は止めない
   try{
     const params={phaseId:currentPhase?.id||'',limit:4};
     if(currentSection)params.sectionId=currentSection;
     if(currentPhase?.id==='interview_phase_10'&&currentSection==='phase_10_card_branch'&&phase10State.selectedCardProduct)params.cardProductOverride=phase10State.selectedCardProduct;
     const data=await api(`/api/fs/meetings/${encodeURIComponent(currentSession.id)}/materials${materialQuery(params)}`);
-    FsMaterials.renderBar(bar,data.materials,{onOpenAll:()=>openMaterialsDialog(),onOpen:material=>logMaterialOpen(material.id)});
+    FsMaterials.renderBar(bar,data.materials,{onOpenAll:()=>openMaterialsDialog(),onOpen:material=>logMaterialOpen(material.id),message:'なし'});
   }catch{FsMaterials.renderBar(bar,[],{onOpenAll:()=>openMaterialsDialog(),message:'資料を読み込めませんでした'})}
 }
 const INTERVIEW_FIELD_LABELS={openedAtAndReason:'①開業時期・開業のきっかけ',strengthAndConcept:'②店舗の強み・コンセプト',recommendedProducts:'③おすすめ商品・メニュー',targetCustomers:'④増やしたいターゲット',futureVision:'⑤今後の展望',currentChallenges:'⑥現在の課題・理想とのギャップ'};
@@ -750,7 +759,7 @@ $('#materials-dialog-keyword').addEventListener('input',refreshMaterialsDialog);
 $('#close-materials').addEventListener('click',()=>$('#materials-dialog').close());
 $('#application-variant').addEventListener('change',()=>renderApplicationGuide());
 async function renderDealHeader(){
-  const targets={owner:$('#deal-header-owner'),meta:$('#deal-header-meta'),links:$('#deal-header-links'),notes:$('#deal-header-notes')};
+  const targets={owner:$('#deal-header-owner'),meta:$('#deal-header-meta'),links:$('#deal-header-links'),notes:$('#deal-header-notes'),notesLabel:'事前情報'};
   if(!currentSession)return FsDealHeader.render(targets,{});
   try{
     const detail=await api(`/api/fs/deals/${encodeURIComponent(currentSession.deal_id||currentSession.id)}`);
@@ -954,6 +963,7 @@ function addMessage(role,text,links=[]){const article=document.createElement('ar
 async function ask(text){if(!text.trim())return;addMessage('user',text);input.value='';send.disabled=true;const loading=addMessage('assistant','確認しています…');try{const data=await api('/api/chat',{method:'POST',body:JSON.stringify({message:text})});loading.remove();addMessage('assistant',data.text||'応答がありません。',data.links||[])}catch(error){loading.remove();addMessage('assistant',error.message)}finally{send.disabled=false}}
 chatForm.addEventListener('submit',event=>{event.preventDefault();ask(input.value)});document.addEventListener('click',event=>{const prompt=event.target.dataset?.prompt;if(prompt)ask(prompt)});
 FsMeetingNote.mount({input:$('#meeting-memo-input'),list:$('#meeting-memo-list'),status:$('#memo-status'),request:api,phaseLabel:phaseLabelOf});
+bindPreinfoAutoHide();
 // 再読み込み後も、終了していない商談は同じ画面とメモの状態で復元する
 async function restoreActiveMeeting(){
   const meetingId=storage.get(ACTIVE_MEETING_KEY);

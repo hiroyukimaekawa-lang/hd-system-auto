@@ -42,7 +42,7 @@ function renderFsDealHeader(targets,deal){
   if(targets.notes){
     targets.notes.textContent='';
     const notes=String(data.isNotes||'').trim()||String(data.handoff||'').trim();
-    const label=document.createElement('small');label.textContent='IS備考';
+    const label=document.createElement('small');label.textContent=targets.notesLabel||'IS備考';
     const body=document.createElement('p');body.className='deal-notes-body clamped';body.textContent=notes||'IS時点の備考は登録されていません。';
     targets.notes.append(label,body);
     if(notes.length>90||notes.split('\n').length>3){
