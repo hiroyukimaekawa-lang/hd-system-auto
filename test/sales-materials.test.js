@@ -5,7 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { LocalSqliteSalesMaterialRepository } from '../src/repositories/sqlite-sales-material-repository.js';
 import { SalesMaterialRepository } from '../src/repositories/sales-material-repository.js';
-import { safeMaterialUrl, normalizeMaterial, selectPhaseMaterials, productMatches, visibleTo, phaseTagsFor } from '../src/sales-materials.js';
+import { safeMaterialUrl, normalizeMaterial, selectPhaseMaterials, productMatches, visibleTo, phaseTagsFor, groupMaterials } from '../src/sales-materials.js';
 
 const PHASE_TAGS = JSON.parse(fs.readFileSync(new URL('../config/sales-assist/fs-material-phase-tags.json', import.meta.url), 'utf8')).talkScripts.default;
 const SAMPLE = [
@@ -140,6 +140,33 @@ test('分類と絞り込みの基本ルール', () => {
   assert.equal(normalized.visibility, 'fs_internal');
   assert.equal(normalized.customerShareable, false);
 });
+
+test('資料ライブラリを使う場面ごとに分けて並べる', () => withRepository(repository => {
+  repository.importAll(SAMPLE);
+  const groups = groupMaterials(repository.list({ viewer:'fs' }));
+  assert.deepEqual(groups.map(group => group.label), ['商談中に使用する資料','電気・エネパルの説明資料','申込時に使用する資料']);
+
+  const byId = Object.fromEntries(groups.map(group => [group.id, group.materials.map(item => item.id)]));
+  assert.deepEqual(byId.talk, ['fs-main-proposal-deck']);
+  assert.deepEqual(byId.electricity, ['enepal-official-site','enepal-palpower-price-list','enepal-kanto-area-fees']);
+  // 申込時に使う資料（カード申込・申込書・最新の申込リンク）を1つのまとまりにする
+  assert.deepEqual(byId.application, ['amex-application-flow','smbc-business-owners-manual','ac-mastercard-application-guide','affiliate-links-master','enepal-application-template']);
+  assert.equal(groups.every(group => group.materials.length), true, '空のグループは出さない');
+
+  // カテゴリがotherでも、制作事例タグが付いていれば商談中の資料へ寄せる
+  const withCase = groupMaterials([...repository.list({ viewer:'fs' }), { ...SAMPLE[0], id:'case-site', category:'other', phaseTags:['case_study','hp_quality'], sortOrder:15 }]);
+  assert.deepEqual(withCase.find(group => group.id === 'talk').materials.map(item => item.id), ['fs-main-proposal-deck','case-site']);
+  assert.equal(withCase.some(group => group.id === 'other'), false);
+
+  // 手掛かりのない資料は「その他」へ落とす
+  const withOther = groupMaterials([...repository.list({ viewer:'fs' }), { ...SAMPLE[0], id:'unknown-doc', category:'other', phaseTags:[], sortOrder:1 }]);
+  assert.deepEqual(withOther.at(-1).materials.map(item => item.id), ['unknown-doc']);
+  assert.equal(withOther.at(-1).label, 'その他');
+
+  // 顧客向けにはアフィリエイト管理表を含めない
+  assert.equal(groupMaterials(repository.list({ viewer:'customer' })).find(group => group.id === 'application').materials.includes('affiliate-links-master'), false);
+  assert.deepEqual(groupMaterials([]), []);
+}));
 
 test('保存先を差し替えられるRepository構造になっている', () => {
   assert.ok(new LocalSqliteSalesMaterialRepository(':memory:') instanceof SalesMaterialRepository);

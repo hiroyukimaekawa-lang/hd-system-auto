@@ -532,8 +532,8 @@ async function loadMaterialAdmin(){
   fillOptions($('#material-filter-product'),MATERIAL_OPTIONS.product,$('#material-filter-product').value||'');
   try{
     const data=await api(`/api/fs/materials${materialQuery({viewer:'admin',category:$('#material-filter-category').value,product:$('#material-filter-product').value,keyword:$('#material-filter-keyword').value.trim(),active:$('#material-filter-active').value})}`);
-    FsMaterials.renderList($('#material-admin-list'),data.materials,materialHandlers(true));
-  }catch(error){FsMaterials.renderList($('#material-admin-list'),[]);toast(error.message)}
+    FsMaterials.renderGroups($('#material-admin-list'),data.materials,materialHandlers(true));
+  }catch(error){FsMaterials.renderGroups($('#material-admin-list'),[]);toast(error.message)}
 }
 ['#material-filter-category','#material-filter-product','#material-filter-active'].forEach(id=>$(id).addEventListener('change',loadMaterialAdmin));
 $('#material-filter-keyword').addEventListener('input',loadMaterialAdmin);
@@ -751,8 +751,8 @@ async function refreshMaterialsDialog(){
   try{
     const data=await api(`/api/fs/materials${materialQuery({active:'true',category:$('#materials-dialog-category').value,product:$('#materials-dialog-product').value,keyword:$('#materials-dialog-keyword').value.trim()})}`);
     $('#materials-dialog-meta').textContent=`${data.materials.length}件｜資料は新しいタブで開きます`;
-    FsMaterials.renderList($('#materials-dialog-list'),data.materials,{onCopy:copyMaterialLink});
-  }catch(error){FsMaterials.renderList($('#materials-dialog-list'),[]);$('#materials-dialog-meta').textContent=error.message}
+    FsMaterials.renderGroups($('#materials-dialog-list'),data.materials,{onCopy:copyMaterialLink});
+  }catch(error){FsMaterials.renderGroups($('#materials-dialog-list'),[]);$('#materials-dialog-meta').textContent=error.message}
 }
 ['#materials-dialog-category','#materials-dialog-product'].forEach(id=>$(id).addEventListener('change',refreshMaterialsDialog));
 $('#materials-dialog-keyword').addEventListener('input',refreshMaterialsDialog);

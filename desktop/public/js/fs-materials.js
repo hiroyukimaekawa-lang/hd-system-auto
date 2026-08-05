@@ -1,6 +1,6 @@
 // 商談資料。タイトル・説明・URLはすべて textContent / setAttribute で扱い、innerHTML を使わない。
 const FS_MATERIAL_LABELS={
-  category:{talk:'トーク中に使用',hp_company:'HP・会社紹介',electricity:'電気・エネパル',contract:'申込書・契約',card_application:'カード申込',affiliate:'アフィリエイトリンク',other:'その他'},
+  category:{talk:'トーク中に使用',hp_company:'HP・会社紹介',case_study:'制作事例',electricity:'電気・エネパル',contract:'申込書・契約',card_application:'カード申込',affiliate:'アフィリエイトリンク',other:'その他'},
   product:{common:'共通',hp:'HP制作',enepal:'エネパル',amex:'AMEX',smbc_business_owners:'三井住友ビジネスオーナーズ',ac_mastercard:'ACマスターカード'},
   sourceType:{google_slides:'Google Slides',powerpoint:'PowerPoint',google_sheets:'Google Sheets',google_docs:'Google Docs',pdf:'PDF',website:'Webページ',other:'その他'},
   visibility:{customer_shareable:'顧客共有可',fs_internal:'FS社内のみ',admin_only:'管理者のみ'}
@@ -80,10 +80,44 @@ function renderFsMaterialList(container,materials,handlers={}){
   if(!materials.length){container.append(fsMaterialNode('p',{class:'muted small',text:'該当する資料はありません。'}));return}
   for(const material of materials)container.append(fsMaterialCard(material,handlers));
 }
+// 使う場面ごとの表示グループ（申込時に使う資料などを分けて並べる）
+const FS_MATERIAL_GROUPS=[
+  {id:'talk',label:'商談中に使用する資料',description:'会社紹介・HPの必要性・制作事例など、画面共有しながら話す資料',categories:['talk','hp_company','case_study'],tags:['case_study','hp_quality']},
+  {id:'electricity',label:'電気・エネパルの説明資料',description:'料金表や契約条件など、電気の説明と比較に使う資料',categories:['electricity'],tags:[]},
+  {id:'application',label:'申込時に使用する資料',description:'申込書の読み合わせ、カード申込、最新の申込リンク',categories:['contract','card_application','affiliate'],tags:[]},
+  {id:'other',label:'その他',description:'',categories:['other'],tags:[]}
+];
+function groupFsMaterials(materials){
+  const sorted=[...materials].sort((a,b)=>a.sortOrder-b.sortOrder||String(a.id).localeCompare(String(b.id)));
+  const groupOf=item=>FS_MATERIAL_GROUPS.find(group=>group.id!=='other'&&group.categories.includes(item.category))
+    ||FS_MATERIAL_GROUPS.find(group=>(group.tags||[]).some(tag=>(item.phaseTags||[]).includes(tag)))
+    ||FS_MATERIAL_GROUPS[FS_MATERIAL_GROUPS.length-1];
+  return FS_MATERIAL_GROUPS
+    .map(group=>({...group,materials:sorted.filter(item=>groupOf(item).id===group.id)}))
+    .filter(group=>group.materials.length);
+}
+function renderFsMaterialGroups(container,materials,handlers={}){
+  if(!container)return;
+  container.textContent='';
+  const groups=groupFsMaterials(materials);
+  if(!groups.length){container.append(fsMaterialNode('p',{class:'muted small',text:'該当する資料はありません。'}));return}
+  for(const group of groups){
+    const head=fsMaterialNode('div',{class:'material-group-head'},[
+      fsMaterialNode('h3',{text:group.label}),
+      fsMaterialNode('span',{class:'material-group-count',text:`${group.materials.length}件`}),
+      group.description?fsMaterialNode('p',{text:group.description}):null
+    ]);
+    const list=fsMaterialNode('div',{class:'material-list'});
+    for(const material of group.materials)list.append(fsMaterialCard(material,handlers));
+    container.append(fsMaterialNode('section',{class:'material-group'},[head,list]));
+  }
+}
 window.FsMaterials={
   labels:FS_MATERIAL_LABELS,
+  groups:FS_MATERIAL_GROUPS,
   safeUrl:fsMaterialUrl,
   card:fsMaterialCard,
   renderBar:renderFsMaterialBar,
-  renderList:renderFsMaterialList
+  renderList:renderFsMaterialList,
+  renderGroups:renderFsMaterialGroups
 };
