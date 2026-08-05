@@ -1,5 +1,5 @@
 // FS商談資料の分類・検証・絞り込み。保存先に依存しない純粋なロジックだけを置く。
-export const MATERIAL_CATEGORIES = ['talk','hp_company','electricity','contract','card_application','affiliate','other'];
+export const MATERIAL_CATEGORIES = ['talk','hp_company','case_study','electricity','contract','card_application','affiliate','other'];
 export const MATERIAL_PRODUCTS = ['common','hp','enepal','amex','smbc_business_owners','ac_mastercard'];
 export const MATERIAL_SOURCE_TYPES = ['google_slides','powerpoint','google_sheets','google_docs','pdf','website','other'];
 export const MATERIAL_VISIBILITY = ['customer_shareable','fs_internal','admin_only'];
@@ -9,7 +9,25 @@ export const VIEWER_VISIBILITY = {
   fs:['customer_shareable','fs_internal'],
   admin:['customer_shareable','fs_internal','admin_only']
 };
-export const CATEGORY_LABELS = { talk:'トーク中に使用', hp_company:'HP・会社紹介', electricity:'電気・エネパル', contract:'申込書・契約', card_application:'カード申込', affiliate:'アフィリエイトリンク', other:'その他' };
+export const CATEGORY_LABELS = { talk:'トーク中に使用', hp_company:'HP・会社紹介', case_study:'制作事例', electricity:'電気・エネパル', contract:'申込書・契約', card_application:'カード申込', affiliate:'アフィリエイトリンク', other:'その他' };
+// 商談資料ライブラリの表示グループ。使う場面ごとに分けて並べる。
+export const MATERIAL_GROUPS = [
+  { id:'talk', label:'商談中に使用する資料', description:'会社紹介・HPの必要性・制作事例など、画面共有しながら話す資料', categories:['talk','hp_company','case_study'], tags:['case_study','hp_quality'] },
+  { id:'electricity', label:'電気・エネパルの説明資料', description:'料金表や契約条件など、電気の説明と比較に使う資料', categories:['electricity'], tags:[] },
+  { id:'application', label:'申込時に使用する資料', description:'申込書の読み合わせ、カード申込、最新の申込リンク', categories:['contract','card_application','affiliate'], tags:[] },
+  { id:'other', label:'その他', description:'', categories:['other'], tags:[] }
+];
+// カテゴリで振り分け、カテゴリが other でもタグで用途が分かるものは該当グループへ寄せる。
+// 先に一致したグループへ1件だけ入れる。
+export function groupMaterials(materials = []) {
+  const sorted = [...materials].sort((a, b) => a.sortOrder - b.sortOrder || String(a.id).localeCompare(String(b.id)));
+  const groupOf = item => MATERIAL_GROUPS.find(group => group.id !== 'other' && group.categories.includes(item.category))
+    || MATERIAL_GROUPS.find(group => (group.tags || []).some(tag => (item.phaseTags || []).includes(tag)))
+    || MATERIAL_GROUPS.at(-1);
+  return MATERIAL_GROUPS
+    .map(group => ({ ...group, materials:sorted.filter(item => groupOf(item).id === group.id) }))
+    .filter(group => group.materials.length);
+}
 export const PRODUCT_LABELS = { common:'共通', hp:'HP制作', enepal:'エネパル', amex:'AMEX', smbc_business_owners:'三井住友ビジネスオーナーズ', ac_mastercard:'ACマスターカード' };
 export const SOURCE_TYPE_LABELS = { google_slides:'Google Slides', powerpoint:'PowerPoint', google_sheets:'Google Sheets', google_docs:'Google Docs', pdf:'PDF', website:'Webページ', other:'その他' };
 export const VISIBILITY_LABELS = { customer_shareable:'顧客共有可', fs_internal:'FS社内のみ', admin_only:'管理者のみ' };

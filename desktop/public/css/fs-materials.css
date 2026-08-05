@@ -61,3 +61,13 @@
   .material-bar-list{flex-wrap:wrap;overflow-x:visible}
   .material-list{grid-template-columns:1fr}
 }
+
+/* 資料ライブラリを使う場面ごとに分けて表示する */
+#material-admin-list,#materials-dialog-list{display:block}
+.material-group{margin-bottom:22px}
+.material-group-head{display:grid;grid-template-columns:auto auto;justify-content:start;align-items:baseline;gap:10px;margin:0 0 10px;padding-bottom:7px;border-bottom:1px solid var(--line)}
+.material-group-head h3{margin:0;font:700 16px Georgia,"Yu Mincho",serif;color:var(--green)}
+.material-group-count{font-size:11px;color:var(--muted);background:#eef0e9;border-radius:999px;padding:2px 9px}
+.material-group-head p{grid-column:1/-1;margin:0;font-size:11.5px;color:var(--muted)}
+.material-group .material-list{padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;overflow:visible}
+#materials-dialog-list{overflow-y:auto;padding:18px 26px 24px}
