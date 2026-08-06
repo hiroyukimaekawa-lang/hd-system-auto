@@ -5,6 +5,7 @@ import crypto from 'node:crypto';
 import { MAEKAWA_PHASES } from './maekawa-sales-script.js';
 import { INTERVIEW_PHASES } from './interview-sales-script.js';
 import { fileURLToPath } from 'node:url';
+import { NOTE_SOURCES, normalizeProducts, sourceHash } from './meeting-analysis.js';
 
 const now = () => new Date().toISOString();
 const moduleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -133,7 +134,21 @@ export class SalesAssistStore {
       CREATE INDEX IF NOT EXISTS interview_data_meeting ON meeting_interview_data(meeting_id);
       CREATE TABLE IF NOT EXISTS material_open_logs(id TEXT PRIMARY KEY, meeting_id TEXT NOT NULL, material_id TEXT NOT NULL, phase_id TEXT DEFAULT '', section_id TEXT DEFAULT '', opened_at TEXT);
       CREATE INDEX IF NOT EXISTS material_open_logs_meeting ON material_open_logs(meeting_id, opened_at);
+      CREATE TABLE IF NOT EXISTS meeting_note_revisions(id TEXT PRIMARY KEY, note_id TEXT, content_before TEXT, content_after TEXT, edited_by TEXT DEFAULT '', edited_at TEXT);
+      CREATE INDEX IF NOT EXISTS meeting_note_revisions_note ON meeting_note_revisions(note_id, edited_at);
+      CREATE TABLE IF NOT EXISTS meeting_products(id TEXT PRIMARY KEY, meeting_id TEXT, deal_id TEXT DEFAULT '', product_code TEXT, selected INTEGER DEFAULT 1, created_by TEXT DEFAULT '', created_at TEXT, updated_at TEXT);
+      CREATE UNIQUE INDEX IF NOT EXISTS meeting_products_key ON meeting_products(meeting_id, product_code);
+      CREATE TABLE IF NOT EXISTS meeting_ai_analyses(id TEXT PRIMARY KEY, meeting_id TEXT, deal_id TEXT DEFAULT '', source_hash TEXT DEFAULT '', model_name TEXT DEFAULT '', status TEXT DEFAULT 'pending', analysis_json TEXT DEFAULT '{}', generated_text TEXT DEFAULT '', edited_text TEXT, generated_at TEXT, edited_by TEXT, edited_at TEXT, is_current INTEGER DEFAULT 1, created_at TEXT, updated_at TEXT);
+      CREATE INDEX IF NOT EXISTS meeting_ai_analyses_meeting ON meeting_ai_analyses(meeting_id, created_at);
     `);
+    // 既存の商談メモを論理削除・編集履歴つきの原文メモとして扱えるようにする（追加のみ）
+    this.ensureColumn('meeting_memos','deal_id',"TEXT DEFAULT ''");
+    this.ensureColumn('meeting_memos','source',"TEXT DEFAULT 'during_meeting'");
+    this.ensureColumn('meeting_memos','author_id',"TEXT DEFAULT ''");
+    this.ensureColumn('meeting_memos','is_deleted',"INTEGER DEFAULT 0");
+    this.ensureColumn('meeting_memos','updated_at',"TEXT DEFAULT ''");
+    this.ensureColumn('meeting_memos','deleted_at',"TEXT DEFAULT ''");
+    this.ensureColumn('meeting_memos','deleted_by',"TEXT DEFAULT ''");
     this.ensureColumn('sales_phases','group_name',"TEXT DEFAULT ''");
     this.ensureColumn('sales_sessions','context_data',"TEXT DEFAULT '{}'");
     this.ensureColumn('sales_sessions','step_state',"TEXT DEFAULT '{}'");
@@ -365,6 +380,10 @@ export class SalesAssistStore {
   }
   finish(id,data) {
     const previous=this.session(id);
+    // 商談結果は必須ではない。商材・終了時メモは原文として別に保存する。
+    if(data.products!==undefined)this.setMeetingProducts(id,data.products,data.staffId||data.actor||'FS');
+    const closingMemo=String(data.closingMemo||'').trim();
+    if(closingMemo)this.addNote(id,{ content:closingMemo, source:'closing_form', author:data.staffId||data.actor||'FS' });
     this.db.prepare("UPDATE sales_sessions SET notes=?,result=?,next_action=?,next_action_at=?,current_phase=?,forecast=?,reflection=?,interrupted_at='',finished_at=? WHERE id=?")
       .run(data.notes||'',data.result||'',data.nextAction||'',data.nextActionDate||'','enepal_card',data.forecast??previous?.forecast??'',data.reflection??previous?.reflection??'',now(),id);
     this.audit(data.staffId||'FS','finish','sales_session',id,{ result:data.result||'', nextAction:data.nextAction||'' });
@@ -377,15 +396,113 @@ export class SalesAssistStore {
     return this.session(id);
   }
   addMeetingMemo(meetingId,data) {
-    if(!this.session(meetingId))return null;
-    const content=String(data.content||'').trim();if(!content)throw new Error('メモを入力してください');
-    const memo={id:`memo_${crypto.randomUUID()}`,meeting_id:meetingId,phase_id:String(data.phaseId||''),content,created_at:now()};
-    this.db.prepare('INSERT INTO meeting_memos(id,meeting_id,phase_id,content,created_at) VALUES(?,?,?,?,?)').run(memo.id,memo.meeting_id,memo.phase_id,memo.content,memo.created_at);
-    return memo;
+    return this.addNote(meetingId,{ ...data, source:data.source||'during_meeting' });
   }
   meetingMemos(meetingId,limit=500) {
     if(!this.session(meetingId))return null;
-    return this.db.prepare('SELECT * FROM meeting_memos WHERE meeting_id=? ORDER BY created_at LIMIT ?').all(meetingId,limit);
+    return this.db.prepare('SELECT * FROM meeting_memos WHERE meeting_id=? AND COALESCE(is_deleted,0)=0 ORDER BY created_at LIMIT ?').all(meetingId,limit);
+  }
+  // ===== 原文メモ（商談中・終了時・終了後）=====
+  notes(meetingId,{ includeDeleted=false }={}) {
+    const session=this.session(meetingId);if(!session)return null;
+    const rows=this.db.prepare('SELECT * FROM meeting_memos WHERE meeting_id=? ORDER BY created_at').all(meetingId);
+    return rows
+      .map(row=>({ ...row, source:row.source||'during_meeting', is_deleted:Number(row.is_deleted||0), deal_id:row.deal_id||session.deal_id||'' }))
+      .filter(row=>includeDeleted||!row.is_deleted);
+  }
+  addNote(meetingId,data={}) {
+    const session=this.session(meetingId);if(!session)return null;
+    const content=String(data.content||'').trim();if(!content)throw new Error('メモを入力してください');
+    const source=NOTE_SOURCES.includes(data.source)?data.source:'during_meeting';
+    const note={ id:`memo_${crypto.randomUUID()}`, meeting_id:meetingId, deal_id:session.deal_id||'', phase_id:String(data.phaseId||''), source, content, author_id:String(data.author||data.actor||''), is_deleted:0, created_at:now(), updated_at:now() };
+    this.db.prepare('INSERT INTO meeting_memos(id,meeting_id,deal_id,phase_id,source,content,author_id,is_deleted,created_at,updated_at) VALUES(?,?,?,?,?,?,?,0,?,?)')
+      .run(note.id,note.meeting_id,note.deal_id,note.phase_id,note.source,note.content,note.author_id,note.created_at,note.updated_at);
+    this.markAnalysisStale(meetingId);
+    return note;
+  }
+  note(meetingId,noteId) {
+    // 他案件のメモを触らせないため、必ず商談IDとの組で取得する
+    const row=this.db.prepare('SELECT * FROM meeting_memos WHERE id=? AND meeting_id=?').get(noteId,meetingId);
+    return row?{ ...row, source:row.source||'during_meeting', is_deleted:Number(row.is_deleted||0) }:null;
+  }
+  updateNote(meetingId,noteId,data={}) {
+    const note=this.note(meetingId,noteId);if(!note||note.is_deleted)return null;
+    const content=String(data.content||'').trim();if(!content)throw new Error('メモは空にできません');
+    if(content===note.content)return note;
+    const timestamp=now();
+    this.db.transaction(()=>{
+      this.db.prepare('INSERT INTO meeting_note_revisions(id,note_id,content_before,content_after,edited_by,edited_at) VALUES(?,?,?,?,?,?)')
+        .run(`rev_${crypto.randomUUID()}`,noteId,note.content,content,String(data.actor||''),timestamp);
+      this.db.prepare('UPDATE meeting_memos SET content=?,updated_at=? WHERE id=? AND meeting_id=?').run(content,timestamp,noteId,meetingId);
+    })();
+    this.markAnalysisStale(meetingId);
+    return this.note(meetingId,noteId);
+  }
+  deleteNote(meetingId,noteId,actor='') {
+    const note=this.note(meetingId,noteId);if(!note||note.is_deleted)return null;
+    this.db.prepare('UPDATE meeting_memos SET is_deleted=1,deleted_at=?,deleted_by=?,updated_at=? WHERE id=? AND meeting_id=?').run(now(),String(actor||''),now(),noteId,meetingId);
+    this.markAnalysisStale(meetingId);
+    return this.note(meetingId,noteId);
+  }
+  noteRevisions(meetingId,noteId) {
+    if(!this.note(meetingId,noteId))return null;
+    return this.db.prepare('SELECT * FROM meeting_note_revisions WHERE note_id=? ORDER BY edited_at').all(noteId);
+  }
+  // ===== 今回扱った商材 =====
+  meetingProducts(meetingId) {
+    return this.db.prepare('SELECT product_code FROM meeting_products WHERE meeting_id=? AND selected=1 ORDER BY rowid').all(meetingId).map(row=>row.product_code);
+  }
+  setMeetingProducts(meetingId,codes,actor='') {
+    const session=this.session(meetingId);if(!session)return null;
+    const selected=normalizeProducts(codes);
+    const timestamp=now();
+    this.db.transaction(()=>{
+      this.db.prepare('UPDATE meeting_products SET selected=0,updated_at=? WHERE meeting_id=?').run(timestamp,meetingId);
+      for(const code of selected){
+        this.db.prepare(`INSERT INTO meeting_products(id,meeting_id,deal_id,product_code,selected,created_by,created_at,updated_at) VALUES(?,?,?,?,1,?,?,?)
+          ON CONFLICT(meeting_id,product_code) DO UPDATE SET selected=1,updated_at=excluded.updated_at`)
+          .run(`mp_${crypto.randomUUID()}`,meetingId,session.deal_id||'',code,String(actor||''),timestamp,timestamp);
+      }
+    })();
+    this.markAnalysisStale(meetingId);
+    return this.meetingProducts(meetingId);
+  }
+  // ===== AI解析 =====
+  analysisSourceHash(meetingId) {
+    const session=this.session(meetingId);
+    return sourceHash({ notes:this.notes(meetingId)||[], products:this.meetingProducts(meetingId), nextAction:session?.next_action||'', reflection:session?.reflection||'' });
+  }
+  currentAnalysis(meetingId) {
+    const row=this.db.prepare('SELECT * FROM meeting_ai_analyses WHERE meeting_id=? AND is_current=1 ORDER BY created_at DESC').get(meetingId);
+    if(!row)return null;
+    const analysis={ ...row, analysis_json:parse(row.analysis_json,{}), is_current:Number(row.is_current) };
+    // メモ・商材・次の行動が変わっていれば要再解析として返す
+    if(analysis.status==='completed'&&analysis.source_hash!==this.analysisSourceHash(meetingId))analysis.status='stale';
+    return analysis;
+  }
+  markAnalysisStale(meetingId) {
+    this.db.prepare("UPDATE meeting_ai_analyses SET status='stale',updated_at=? WHERE meeting_id=? AND is_current=1 AND status='completed'").run(now(),meetingId);
+  }
+  saveAnalysis(meetingId,{ analysis={}, text='', status='completed', modelName='rule-based', actor='' }={}) {
+    const session=this.session(meetingId);if(!session)return null;
+    const timestamp=now();
+    const id=`analysis_${crypto.randomUUID()}`;
+    this.db.transaction(()=>{
+      this.db.prepare('UPDATE meeting_ai_analyses SET is_current=0,updated_at=? WHERE meeting_id=?').run(timestamp,meetingId);
+      this.db.prepare(`INSERT INTO meeting_ai_analyses(id,meeting_id,deal_id,source_hash,model_name,status,analysis_json,generated_text,edited_text,generated_at,edited_by,edited_at,is_current,created_at,updated_at)
+        VALUES(?,?,?,?,?,?,?,?,NULL,?,NULL,NULL,1,?,?)`)
+        .run(id,meetingId,session.deal_id||'',status==='completed'?this.analysisSourceHash(meetingId):'',modelName,status,JSON.stringify(analysis),text,timestamp,timestamp,timestamp);
+    })();
+    this.audit(actor||'FS','analyze','sales_session',meetingId,{ status });
+    return this.currentAnalysis(meetingId);
+  }
+  // 担当者の修正版はAI生成文と別に保存し、再解析で黙って上書きしない
+  editAnalysis(meetingId,analysisId,{ text='', actor='' }={}) {
+    const row=this.db.prepare('SELECT * FROM meeting_ai_analyses WHERE id=? AND meeting_id=?').get(analysisId,meetingId);
+    if(!row)return null;
+    const edited=String(text||'').trim();if(!edited)throw new Error('解析結果は空にできません');
+    this.db.prepare('UPDATE meeting_ai_analyses SET edited_text=?,edited_by=?,edited_at=?,updated_at=? WHERE id=?').run(edited,String(actor||''),now(),now(),analysisId);
+    return this.currentAnalysis(meetingId);
   }
   saveMemoDraft(meetingId,content) {
     const session=this.session(meetingId);if(!session)return null;
@@ -466,6 +583,9 @@ export class SalesAssistStore {
     const summary={dealId:target.deal.dealId||id,storeName:target.deal.storeName,preparationId,sessionId,memos:0,facts:0,objections:0,notes:0};
     this.db.transaction(()=>{
       if(sessionId){
+        for(const row of this.db.prepare('SELECT id FROM meeting_memos WHERE meeting_id=?').all(sessionId))this.db.prepare('DELETE FROM meeting_note_revisions WHERE note_id=?').run(row.id);
+        this.db.prepare('DELETE FROM meeting_products WHERE meeting_id=?').run(sessionId);
+        this.db.prepare('DELETE FROM meeting_ai_analyses WHERE meeting_id=?').run(sessionId);
         summary.memos=this.db.prepare('DELETE FROM meeting_memos WHERE meeting_id=?').run(sessionId).changes;
         summary.facts=this.db.prepare('DELETE FROM sales_facts WHERE session_id=?').run(sessionId).changes;
         summary.objections=this.db.prepare('DELETE FROM ai_suggestions WHERE session_id=?').run(sessionId).changes;

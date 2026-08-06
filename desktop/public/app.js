@@ -363,6 +363,106 @@ $('#cancel-prep-edit').addEventListener('click',resetPreparationForm);
 function resultSection(title,value){
   return el('section',{class:'result-block'},[el('h3',{text:title}),el('p',{text:String(value||'').trim()||'—'})]);
 }
+// 終了後も原文メモを追記・編集・論理削除でき、履歴を残す
+async function buildResultNotesSection(meetingId,dealId){
+  const section=el('section',{class:'result-block'},[el('h3',{text:'商談メモ（原文）'})]);
+  if(!meetingId){section.append(el('p',{text:'この案件には商談記録がありません。'}));return section}
+  const list=el('div',{class:'note-list'});
+  const reload=async()=>{
+    try{
+      const data=await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/notes`);
+      renderNoteList(list,data.notes||[],{
+        onEdit:note=>openNoteEditor(meetingId,note,()=>showResultDetail(dealId)),
+        onDelete:async note=>{
+          if(!window.confirm('このメモを削除しますか？（記録は残り、一覧から非表示になります）'))return;
+          try{await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/notes/${encodeURIComponent(note.id)}`,{method:'DELETE'});toast('メモを削除しました');showResultDetail(dealId)}catch(error){toast(error.message)}
+        },
+        onHistory:note=>openNoteHistory(meetingId,note)
+      });
+    }catch(error){list.textContent='';list.append(el('p',{class:'muted small',text:error.message}))}
+  };
+  await reload();
+  const input=el('textarea',{rows:'2',placeholder:'商談後の追記を入力'});
+  const addButton=el('button',{class:'secondary',type:'button',text:'メモを追記'});
+  addButton.addEventListener('click',async()=>{
+    const content=input.value.trim();if(!content)return toast('追記するメモを入力してください');
+    try{await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/notes`,{method:'POST',body:JSON.stringify({content,source:'post_meeting',author:'FS'})});input.value='';toast('メモを追記しました');showResultDetail(dealId)}catch(error){toast(error.message)}
+  });
+  section.append(list,el('div',{class:'note-add'},[input,addButton]));
+  return section;
+}
+async function buildResultProductSection(meetingId,dealId){
+  const section=el('section',{class:'result-block'},[el('h3',{text:'今回扱った商材'})]);
+  if(!meetingId){section.append(el('p',{text:'—'}));return section}
+  const container=el('div',{class:'product-checks'});
+  let selected=[];
+  try{selected=(await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/notes`)).products||[]}catch{}
+  renderProductChecks(container,selected);
+  const save=el('button',{class:'secondary',type:'button',text:'商材を保存'});
+  save.addEventListener('click',async()=>{
+    const products=[...container.querySelectorAll('input[type=checkbox]')].filter(box=>box.checked).map(box=>box.value);
+    try{await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/products`,{method:'PUT',body:JSON.stringify({products,actor:'FS'})});toast('商材を保存しました');showResultDetail(dealId)}catch(error){toast(error.message)}
+  });
+  section.append(container,save);
+  return section;
+}
+async function buildResultAnalysisSection(meetingId,dealId){
+  const section=el('section',{class:'result-block analysis-block'},[el('h3',{text:'AIによる整理結果'})]);
+  if(!meetingId){section.append(el('p',{text:'—'}));return section}
+  const status=el('div',{class:'analysis-status'}),body=el('div',{class:'analysis-body'});
+  let current=null;
+  try{current=(await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/analysis`)).analysis}catch{}
+  renderAnalysis(status,body,current);
+  const run=el('button',{class:'secondary',type:'button',text:'AI解析を更新'});
+  run.addEventListener('click',async()=>{
+    // 担当者の修正版がある場合は、上書きしてよいか必ず確認する
+    if(current?.edited_text&&!window.confirm('担当者が修正した解析結果があります。新しい解析を作成しますか？（修正版は履歴として残ります）'))return;
+    run.disabled=true;
+    try{const data=await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/analysis`,{method:'POST',body:JSON.stringify({actor:'FS'})});current=data.analysis;renderAnalysis(status,body,current);toast(data.text||'AI解析を更新しました')}
+    catch(error){toast(error.message)}finally{run.disabled=false}
+  });
+  const edit=el('button',{class:'secondary',type:'button',text:'解析結果を編集'});
+  edit.addEventListener('click',()=>{
+    if(!current)return toast('先にAI解析を作成してください');
+    openAnalysisEditor(meetingId,current,()=>showResultDetail(dealId));
+  });
+  section.append(status,body,el('small',{class:'muted analysis-disclaimer',text:'AI解析は原文メモをもとにした補助情報です。重要な判断は原文と実際の確認内容をもとに行ってください。'}),el('div',{class:'note-actions'},[run,edit]));
+  return section;
+}
+let noteEditorTarget=null,analysisEditorTarget=null;
+function openNoteEditor(meetingId,note,onSaved){
+  noteEditorTarget={meetingId,noteId:note.id,onSaved};
+  $('#note-edit-input').value=note.content;
+  $('#note-edit-dialog').showModal();
+}
+$('#note-edit-form').addEventListener('submit',async event=>{
+  if(event.submitter?.value!=='save'||!noteEditorTarget)return;
+  const target=noteEditorTarget;noteEditorTarget=null;
+  try{await api(`/api/fs/meetings/${encodeURIComponent(target.meetingId)}/notes/${encodeURIComponent(target.noteId)}`,{method:'PATCH',body:JSON.stringify({content:$('#note-edit-input').value,actor:'FS'})});toast('メモを更新しました');target.onSaved?.()}catch(error){toast(error.message)}
+});
+async function openNoteHistory(meetingId,note){
+  const list=$('#note-history-list');list.textContent='';
+  try{
+    const data=await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/notes/${encodeURIComponent(note.id)}/revisions`);
+    if(!data.revisions.length)list.append(el('p',{class:'muted small',text:'編集履歴はありません。'}));
+    for(const revision of data.revisions)list.append(el('article',{class:'note-item'},[
+      el('small',{text:`${noteTime(revision.edited_at)}｜${revision.edited_by||'担当者'}`}),
+      el('p',{class:'note-before',text:`変更前：${revision.content_before}`}),
+      el('p',{class:'note-body',text:`変更後：${revision.content_after}`})
+    ]));
+  }catch(error){list.append(el('p',{class:'muted small',text:error.message}))}
+  $('#note-history-dialog').showModal();
+}
+function openAnalysisEditor(meetingId,analysis,onSaved){
+  analysisEditorTarget={meetingId,analysisId:analysis.id,onSaved};
+  $('#analysis-edit-input').value=analysis.edited_text||analysis.generated_text||'';
+  $('#analysis-edit-dialog').showModal();
+}
+$('#analysis-edit-form').addEventListener('submit',async event=>{
+  if(event.submitter?.value!=='save'||!analysisEditorTarget)return;
+  const target=analysisEditorTarget;analysisEditorTarget=null;
+  try{await api(`/api/fs/meetings/${encodeURIComponent(target.meetingId)}/analysis/${encodeURIComponent(target.analysisId)}`,{method:'PATCH',body:JSON.stringify({text:$('#analysis-edit-input').value,actor:'FS'})});toast('解析結果を保存しました（担当者修正済み）');target.onSaved?.()}catch(error){toast(error.message)}
+});
 async function showResultDetail(dealId){
   let detail;
   try{detail=await api(`/api/fs/deals/${encodeURIComponent(dealId)}`)}catch(error){return toast(error.message)}
@@ -372,12 +472,14 @@ async function showResultDetail(dealId){
   $('#result-detail-meta').textContent=[deal.ownerName&&`${deal.ownerName}様`,deal.staffId&&`担当 ${deal.staffId}`,deal.finishedAt&&`商談日 ${dealDate(deal.finishedAt)}`,deal.status].filter(Boolean).join('｜');
   FsDealHeader.render({meta:$('#result-detail-header-meta'),links:$('#result-detail-header-links'),notes:$('#result-detail-header-notes')},deal);
   const body=$('#result-detail-body');body.textContent='';
-  const memos=el('section',{class:'result-block'},[el('h3',{text:'商談メモ'})]);
-  if(detail.memos?.length)for(const memo of detail.memos)memos.append(el('p',{class:'result-memo',text:`${dealDate(memo.created_at)}｜${memo.content}`}));
-  else memos.append(el('p',{text:'メモは記録されていません。'}));
-  body.append(
+  const meetingId=deal.meetingId||detail.session?.id||'';
+  const memos=await buildResultNotesSection(meetingId,dealId);
+  const analysisBlock=await buildResultAnalysisSection(meetingId,dealId);
+  const productBlock=await buildResultProductSection(meetingId,dealId);
+  body.append(...[
     resultSection('ISからの引き継ぎ',deal.handoff),
-    resultSection('商談結果',deal.result),
+    productBlock,
+    deal.result?resultSection('商談結果（旧データ・参考）',deal.result):null,
     resultSection('ヨミ',deal.forecast),
     resultSection('制作意思・言質',factText('commitment')),
     resultSection('提案商材',factText('proposed_products')||deal.products),
@@ -385,14 +487,16 @@ async function showResultDetail(dealId){
     resultSection('残った懸念',deal.concerns||factText('log')),
     resultSection('次回アクション',[deal.nextAction,dealDate(deal.nextActionAt,'')].filter(Boolean).join('｜')),
     memos,
+    analysisBlock,
     resultSection('商談結果メモ',detail.session?.notes),
     resultSection('担当者の振り返り',deal.reflection)
-  );
+  ].filter(Boolean));
   const handoffButton=el('button',{class:'secondary',type:'button',text:'進捗管理FMTを確認'});
   handoffButton.addEventListener('click',async()=>{$('#handoff-output').value=await buildHandoffFormat(detail.session,facts);$('#result-dialog').close();$('#handoff-dialog').showModal()});
   body.append(el('div',{class:'actions'},[handoffButton]));
   $('#result-dialog').showModal();
 }
+$('#close-note-history').addEventListener('click',()=>$('#note-history-dialog').close());
 $('#close-result').addEventListener('click',()=>$('#result-dialog').close());
 $('#close-result-bottom').addEventListener('click',()=>$('#result-dialog').close());
 $('#close-preparation').addEventListener('click',()=>$('#preparation-dialog').close());
@@ -887,7 +991,90 @@ $('#save-scratch-analysis').addEventListener('click',async()=>{
 });
 $('#save-fact').addEventListener('click',async()=>{if(!currentSession)return toast('先に商談を開始してください');try{await api(`/api/sales/sessions/${currentSession.id}/facts`,{method:'POST',body:JSON.stringify({category:$('#fact-category').value,value:$('#fact-value').value})});$('#fact-value').value='';await loadSessionRecord();toast('商談記録へ追加しました')}catch(error){toast(error.message)}});
 async function useSuggestion(index){await api(`/api/sales/suggestions/${currentSuggestion.id}/use`,{method:'POST',body:JSON.stringify({selectedCandidate:index})});$$('[data-use]').forEach((el,i)=>{el.textContent=i===index?'使用済み ✓':'この返答を使用';el.classList.toggle('used',i===index)});await loadSessionRecord();toast('使用した返答を記録しました')}
-$('#finish-button').addEventListener('click',()=>{if(!currentSession){toast('進行中の商談がありません');return}$('#finish-dialog').showModal()});$('#notes-button').addEventListener('click',()=>$('#finish-button').click());
+$('#finish-button').addEventListener('click',async()=>{if(!currentSession){toast('進行中の商談がありません');return}$('#finish-dialog').showModal();await openFinishDialog()});$('#notes-button').addEventListener('click',()=>$('#finish-button').click());
+// ===== 今回扱った商材・原文メモ・AI解析 =====
+const MEETING_PRODUCTS=[
+  {code:'enepal',label:'エネパル'},
+  {code:'amex',label:'AMEX'},
+  {code:'smbc_business_owners',label:'三井住友ビジネスオーナーズ'},
+  {code:'acom_ac_mastercard',label:'アコム（ACマスターカード）'},
+  {code:'none',label:'今回は商材提案なし'}
+];
+const NOTE_SOURCE_LABELS={during_meeting:'商談中',closing_form:'終了時追記',post_meeting:'商談後追記'};
+const noteTime=value=>{const date=new Date(value);return Number.isNaN(date.getTime())?'':date.toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})};
+function renderProductChecks(container,selected=[]){
+  if(!container)return;
+  container.textContent='';
+  for(const item of MEETING_PRODUCTS){
+    const input=el('input',{type:'checkbox',value:item.code});
+    input.checked=selected.includes(item.code);
+    // 「商材提案なし」は他商材と同時に選べない
+    input.addEventListener('change',()=>{
+      const boxes=[...container.querySelectorAll('input[type=checkbox]')];
+      if(input.value==='none'&&input.checked)boxes.forEach(box=>{if(box!==input)box.checked=false});
+      else if(input.checked)boxes.forEach(box=>{if(box.value==='none')box.checked=false});
+    });
+    const label=el('label',{class:'product-check'},[input,el('span',{text:item.label})]);
+    container.append(label);
+  }
+}
+const selectedFinishProducts=()=>[...$('#finish-products').querySelectorAll('input[type=checkbox]')].filter(box=>box.checked).map(box=>box.value);
+// 原文メモはAI解析と混ぜず、そのまま時系列で見せる
+function renderNoteList(container,notes,{onEdit,onDelete,onHistory}={}){
+  if(!container)return;
+  container.textContent='';
+  if(!notes.length){container.append(el('p',{class:'muted small',text:'メモはまだありません。'}));return}
+  for(const note of notes){
+    const head=el('small',{class:'note-head',text:[noteTime(note.created_at),note.phase_id&&phaseLabelOf(note.phase_id),NOTE_SOURCE_LABELS[note.source]||note.source,note.author_id].filter(Boolean).join('｜')});
+    const body=el('p',{class:'note-body',text:note.content});
+    const actions=el('div',{class:'note-actions'});
+    const add=(label,handler)=>{const button=el('button',{class:'secondary',type:'button',text:label});button.addEventListener('click',()=>handler(note));actions.append(button)};
+    if(onEdit)add('編集',onEdit);
+    if(onDelete)add('削除',onDelete);
+    if(onHistory&&note.updated_at&&note.updated_at!==note.created_at)add('編集履歴',onHistory);
+    container.append(el('article',{class:'note-item'},[head,body,actions.childElementCount?actions:null]));
+  }
+}
+const ANALYSIS_STATUS_LABELS={pending:'未解析',completed:'最新',stale:'メモ更新後・要再解析',failed:'解析失敗'};
+function renderAnalysis(statusNode,bodyNode,analysis){
+  if(statusNode){
+    statusNode.textContent='';
+    const status=analysis?.status||'pending';
+    statusNode.append(el('span',{class:`analysis-badge s-${status}`,text:ANALYSIS_STATUS_LABELS[status]||status}));
+    if(analysis?.edited_text)statusNode.append(el('span',{class:'analysis-badge edited',text:'担当者修正済み'}));
+    if(status==='stale')statusNode.append(el('span',{class:'analysis-note',text:'メモが更新されています。AI解析を更新してください。'}));
+    if(status==='failed')statusNode.append(el('span',{class:'analysis-note',text:'AI解析を作成できませんでした。商談記録は保存されています。'}));
+  }
+  if(bodyNode){
+    bodyNode.textContent='';
+    const text=analysis?.edited_text||analysis?.generated_text||'';
+    bodyNode.append(el('pre',{class:'analysis-text',text:text||'まだ解析していません。「AI解析を更新」を押してください。'}));
+  }
+}
+async function loadFinishAnalysis(){
+  if(!currentSession)return;
+  try{
+    const data=await api(`/api/fs/meetings/${encodeURIComponent(currentSession.id)}/analysis`);
+    renderAnalysis($('#finish-analysis-status'),$('#finish-analysis-body'),data.analysis);
+  }catch{renderAnalysis($('#finish-analysis-status'),$('#finish-analysis-body'),null)}
+}
+async function openFinishDialog(){
+  if(!currentSession)return;
+  try{
+    const data=await api(`/api/fs/meetings/${encodeURIComponent(currentSession.id)}/notes`);
+    renderProductChecks($('#finish-products'),data.products||[]);
+    renderNoteList($('#finish-note-list'),data.notes||[]);
+  }catch{renderProductChecks($('#finish-products'),[]);renderNoteList($('#finish-note-list'),[])}
+  await loadFinishAnalysis();
+}
+$('#finish-run-analysis').addEventListener('click',async()=>{
+  if(!currentSession)return;
+  const button=$('#finish-run-analysis');button.disabled=true;
+  try{
+    const data=await api(`/api/fs/meetings/${encodeURIComponent(currentSession.id)}/analysis`,{method:'POST',body:JSON.stringify({actor:currentSession.staff_id||'FS'})});
+    renderAnalysis($('#finish-analysis-status'),$('#finish-analysis-body'),data.analysis);
+  }catch(error){toast(error.message)}finally{button.disabled=false}
+});
 $('#pause-button').addEventListener('click',async()=>{
   if(!currentSession)return toast('進行中の商談がありません');
   try{
@@ -903,8 +1090,10 @@ $('#finish-form').addEventListener('submit',async event=>{
   event.preventDefault();
   // currentTarget は await のあと null になるため、ここで保持する
   const form=event.currentTarget,body=Object.fromEntries(new FormData(form));
-  if(!body.result)return toast('商談結果を選択してください');
   if(!currentSession)return toast('進行中の商談がありません');
+  // 商談結果は入力しない。今回扱った商材を送る。
+  body.products=selectedFinishProducts();
+  body.actor=currentSession.staff_id||'FS';
   const meetingId=currentSession.id;
   try{
     await FsMeetingNote.flush();

@@ -10,6 +10,19 @@ const safeName = value => String(value || '名称未設定')
 const text = value => String(value || '').trim() || '未入力';
 const lines = values => values.length ? values.map(value => `- ${value}`).join('\n') : '- なし';
 
+const PRODUCT_LABELS = { enepal:'エネパル', amex:'AMEX', smbc_business_owners:'三井住友ビジネスオーナーズ', acom_ac_mastercard:'アコム（ACマスターカード）', none:'今回は商材提案なし' };
+const NOTE_SOURCE_LABELS = { during_meeting:'商談中', closing_form:'終了時追記', post_meeting:'商談後追記' };
+// AI解析は補助情報であることを明記して保存する（商談結果・ヨミとしては扱わない）
+function analysisSection(store, sessionId) {
+  const analysis = store.currentAnalysis?.(sessionId);
+  if (!analysis) return '未解析';
+  const body = (analysis.edited_text || analysis.generated_text || '').trim();
+  if (!body) return analysis.status === 'failed' ? 'AI解析を作成できませんでした。原文メモを参照してください。' : '未解析';
+  const label = analysis.edited_text ? '担当者修正済み' : 'AI生成';
+  const stale = analysis.status === 'stale' ? '（メモ更新後・要再解析）' : '';
+  return `> AI解析は原文メモをもとにした補助情報です。重要な判断は原文と実際の確認内容をもとに行ってください。\n\n**${label}${stale}**\n\n${body}`;
+}
+
 export function resolveObsidianVault(vaultId, obsidianConfigPath = path.join(os.homedir(), 'Library', 'Application Support', 'obsidian', 'obsidian.json')) {
   const config = JSON.parse(fs.readFileSync(obsidianConfigPath, 'utf8'));
   const vault = config.vaults?.[vaultId];
@@ -111,9 +124,17 @@ ${lines(facts)}
 
 ${lines(objections)}
 
-## 商談メモ
+## 今回扱った商材
 
-${lines((store.meetingMemos?.(sessionId) || []).map(item => `${new Date(item.created_at).toLocaleString('ja-JP')}｜${item.content}`))}
+${lines((store.meetingProducts?.(sessionId) || []).map(code => PRODUCT_LABELS[code] || code))}
+
+## 商談メモ（原文）
+
+${lines((store.notes?.(sessionId) || store.meetingMemos?.(sessionId) || []).map(item => `${new Date(item.created_at).toLocaleString('ja-JP')}｜${NOTE_SOURCE_LABELS[item.source] || '商談中'}${item.author_id ? `｜${item.author_id}` : ''}\n  ${item.content}`))}
+
+## AIによる整理結果
+
+${analysisSection(store, sessionId)}
 
 ## 殴り書きとAI整理
 
@@ -122,6 +143,10 @@ ${scratch || '記録なし'}
 ## 商談結果メモ
 
 ${text(session.notes)}
+
+## 担当者の振り返り
+
+${text(session.reflection)}
 `;
     return this.write(path.join('商談内容', '案件', `${safeName(session.customer_name)} - ${session.id.slice(0, 8)}.md`), body);
   }
