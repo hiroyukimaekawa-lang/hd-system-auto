@@ -3,6 +3,24 @@
   "note": "商談資料の登録テンプレート。実URLはここへ書かず、config/private/fs-sales-materials.local.json（Git管理外）へ記載する。",
   "materials": [
     {
+      "id": "growth-path-corporate-site",
+      "title": "弊社HP（Growth Path 公式サイト）",
+      "sourceTitle": "株式会社Growth Path 公式サイト",
+      "description": "会社紹介の場面で弊社の実在性・事業内容を示すために使用",
+      "category": "hp_company",
+      "product": "common",
+      "sourceType": "website",
+      "url": "",
+      "phaseTags": [
+        "company_intro",
+        "hp_value"
+      ],
+      "visibility": "customer_shareable",
+      "customerShareable": true,
+      "sortOrder": 5,
+      "active": true
+    },
+    {
       "id": "fs-main-proposal-deck",
       "title": "トーク内使用｜新規事業ご提案資料",
       "sourceTitle": "【飲食店向け】新規事業についてのご提案資料.pptx",
@@ -11,7 +29,12 @@
       "product": "common",
       "sourceType": "powerpoint",
       "url": "",
-      "phaseTags": ["company_intro", "hp_value", "free_scheme", "proposal"],
+      "phaseTags": [
+        "company_intro",
+        "hp_value",
+        "free_scheme",
+        "proposal"
+      ],
       "visibility": "customer_shareable",
       "customerShareable": true,
       "sortOrder": 10,
@@ -25,7 +48,10 @@
       "product": "amex",
       "sourceType": "google_slides",
       "url": "",
-      "phaseTags": ["card_amex", "application"],
+      "phaseTags": [
+        "card_amex",
+        "application"
+      ],
       "visibility": "customer_shareable",
       "customerShareable": true,
       "sortOrder": 20,
@@ -39,7 +65,10 @@
       "product": "smbc_business_owners",
       "sourceType": "powerpoint",
       "url": "",
-      "phaseTags": ["card_smbc", "application"],
+      "phaseTags": [
+        "card_smbc",
+        "application"
+      ],
       "visibility": "customer_shareable",
       "customerShareable": true,
       "sortOrder": 30,
@@ -53,7 +82,10 @@
       "product": "ac_mastercard",
       "sourceType": "google_slides",
       "url": "",
-      "phaseTags": ["card_ac", "application"],
+      "phaseTags": [
+        "card_ac",
+        "application"
+      ],
       "visibility": "customer_shareable",
       "customerShareable": true,
       "sortOrder": 40,
@@ -67,7 +99,12 @@
       "product": "common",
       "sourceType": "google_sheets",
       "url": "",
-      "phaseTags": ["card_amex", "card_smbc", "card_ac", "application"],
+      "phaseTags": [
+        "card_amex",
+        "card_smbc",
+        "card_ac",
+        "application"
+      ],
       "visibility": "fs_internal",
       "customerShareable": false,
       "sortOrder": 50,
@@ -81,7 +118,10 @@
       "product": "enepal",
       "sourceType": "website",
       "url": "",
-      "phaseTags": ["free_scheme", "electricity_intro"],
+      "phaseTags": [
+        "free_scheme",
+        "electricity_intro"
+      ],
       "visibility": "customer_shareable",
       "customerShareable": true,
       "sortOrder": 60,
@@ -95,7 +135,11 @@
       "product": "enepal",
       "sourceType": "pdf",
       "url": "",
-      "phaseTags": ["electricity_intro", "electricity_comparison", "application"],
+      "phaseTags": [
+        "electricity_intro",
+        "electricity_comparison",
+        "application"
+      ],
       "visibility": "customer_shareable",
       "customerShareable": true,
       "sortOrder": 70,
@@ -109,7 +153,11 @@
       "product": "enepal",
       "sourceType": "website",
       "url": "",
-      "phaseTags": ["electricity_intro", "contract_conditions", "application"],
+      "phaseTags": [
+        "electricity_intro",
+        "contract_conditions",
+        "application"
+      ],
       "visibility": "customer_shareable",
       "customerShareable": true,
       "sortOrder": 80,
@@ -123,7 +171,11 @@
       "product": "enepal",
       "sourceType": "google_docs",
       "url": "",
-      "phaseTags": ["application_form", "contract_readthrough", "cloudsign"],
+      "phaseTags": [
+        "application_form",
+        "contract_readthrough",
+        "cloudsign"
+      ],
       "visibility": "fs_internal",
       "customerShareable": true,
       "sortOrder": 90,

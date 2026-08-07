@@ -175,7 +175,7 @@ export class SalesAssistStore {
     if (!this.db.prepare(`PRAGMA table_info(${table})`).all().some(item => item.name === column)) this.db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`);
   }
   seed() {
-    const contentVersion = 3;
+    const contentVersion = 4;
     const storedVersion = Number(this.db.prepare("SELECT value FROM sales_meta WHERE key='script_content_version'").get()?.value || 0);
     const phase = this.db.prepare(`INSERT INTO sales_phases(id,phase_order,group_name,name,goal,base_script,required_questions,transition_conditions,prohibited_phrases,version,status,updated_at)
       VALUES(?,?,?,?,?,?,?,?,?,?,?,?)

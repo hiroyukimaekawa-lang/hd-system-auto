@@ -3,38 +3,90 @@
   "talkScripts": {
     "default": {
       "agenda": [],
-      "company": ["company_intro", "hp_value"],
-      "hp_impression": ["hp_value"],
-      "future": [],
-      "hearing": [],
-      "hp_role": ["hp_value"],
-      "hp_explanation": ["hp_value", "proposal"],
-      "questions": [],
-      "examples": ["hp_value", "proposal"],
-      "test_closing": ["proposal"],
-      "free_conditions": ["free_scheme", "electricity_intro", "electricity_comparison", "contract_conditions"],
-      "application": ["application", "application_form", "contract_readthrough", "contract_conditions"],
+      "company": [
+        "company_intro",
+        "hp_value"
+      ],
+      "hp_interest": [
+        "hp_value",
+        "proposal",
+        "case_study"
+      ],
+      "free_conditions": [
+        "free_scheme",
+        "electricity_intro",
+        "electricity_comparison",
+        "contract_conditions"
+      ],
+      "application": [
+        "application",
+        "application_form",
+        "contract_readthrough",
+        "contract_conditions"
+      ],
       "line_email": [],
-      "cloudsign": ["cloudsign", "contract_readthrough"],
-      "enepal_card": ["card_amex", "card_smbc", "card_ac", "application", "electricity_intro"]
+      "cloudsign": [
+        "cloudsign",
+        "contract_readthrough"
+      ],
+      "enepal_card": [
+        "card_amex",
+        "card_smbc",
+        "card_ac",
+        "application",
+        "electricity_intro"
+      ]
     },
     "hp-free-interview-talk": {
       "interview_phase_01": [],
       "interview_phase_02": [],
       "interview_phase_03": [],
-      "interview_phase_04": ["company_intro", "hp_value"],
-      "interview_phase_05": ["hp_value", "proposal"],
-      "interview_phase_06": ["free_scheme", "proposal"],
-      "interview_phase_07": ["case_study"],
+      "interview_phase_04": [
+        "company_intro",
+        "hp_value"
+      ],
+      "interview_phase_05": [
+        "hp_value",
+        "proposal"
+      ],
+      "interview_phase_06": [
+        "free_scheme",
+        "proposal"
+      ],
+      "interview_phase_07": [
+        "case_study"
+      ],
       "interview_phase_08": [],
-      "interview_phase_09": ["case_study"],
-      "phase_10_scheme": ["free_scheme", "proposal"],
-      "phase_10_provider_check": ["electricity_intro"],
-      "phase_10_electricity_offer": ["electricity_comparison", "electricity_intro"],
-      "phase_10_card_branch": ["card_amex", "card_smbc", "card_ac", "application"],
-      "phase_10_application_form": ["application_form", "contract_readthrough"],
-      "phase_10_objection_pre_screening": ["application_form"],
-      "phase_10_line_cloudsign": ["cloudsign"]
+      "interview_phase_09": [
+        "case_study"
+      ],
+      "phase_10_scheme": [
+        "free_scheme",
+        "proposal"
+      ],
+      "phase_10_provider_check": [
+        "electricity_intro"
+      ],
+      "phase_10_electricity_offer": [
+        "electricity_comparison",
+        "electricity_intro"
+      ],
+      "phase_10_card_branch": [
+        "card_amex",
+        "card_smbc",
+        "card_ac",
+        "application"
+      ],
+      "phase_10_application_form": [
+        "application_form",
+        "contract_readthrough"
+      ],
+      "phase_10_objection_pre_screening": [
+        "application_form"
+      ],
+      "phase_10_line_cloudsign": [
+        "cloudsign"
+      ]
     }
   }
 }

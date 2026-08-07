@@ -55,7 +55,7 @@ test('現在フェーズと対象商材に合う資料だけを最大4件返す'
 
   // 会社紹介・HP説明ではご提案資料
   assert.deepEqual(phase('company', 'ホームページ無料制作、エネパル'), ['fs-main-proposal-deck']);
-  assert.deepEqual(phase('examples', 'ホームページ無料制作、エネパル'), ['fs-main-proposal-deck']);
+  assert.deepEqual(phase('hp_interest', 'ホームページ無料制作、エネパル'), ['fs-main-proposal-deck']);
   // 無料の仕組み・電気説明ではエネパル資料
   assert.deepEqual(phase('free_conditions', 'ホームページ無料制作、エネパル'),
     ['fs-main-proposal-deck','enepal-official-site','enepal-palpower-price-list','enepal-kanto-area-fees']);
@@ -176,6 +176,6 @@ test('保存先を差し替えられるRepository構造になっている', () =
 
 test('公開テンプレートに実URLが含まれていない', () => {
   const example = JSON.parse(fs.readFileSync(new URL('../config/sales-assist/fs-sales-materials.example.json', import.meta.url), 'utf8'));
-  assert.equal(example.materials.length, 9);
+  assert.equal(example.materials.length, 10);
   for (const item of example.materials) assert.equal(item.url, '', `${item.id} のURLはテンプレートでは空にする`);
 });

@@ -107,12 +107,13 @@ function renderCatalog(){
 }
 function scriptCard(item,admin=false){
   const department=catalog.departments.find(value=>value.id===item.department_id);
-  return `<article class="script-card"><header><span>${department?.name||item.department_id}</span><em class="status ${item.status}">${statusLabel(item.status)}</em></header><h2>${item.name}</h2><p>${item.products.join('＋')||'商材未登録'}</p><dl><div><dt>対象顧客</dt><dd>${item.customer_type||'—'}</dd></div><div><dt>バージョン</dt><dd>${item.version||'—'}</dd></div><div><dt>最終更新日</dt><dd>${item.updated_at?.slice(0,10)||'—'}</dd></div><div><dt>フェーズ数</dt><dd>${item.phase_count||0}</dd></div><div><dt>使用回数</dt><dd>${item.use_count||0}</dd></div></dl><footer>${admin?`<button class="secondary" data-script-preview="${item.id}">確認</button><button class="secondary" data-script-rename="${item.id}">タイトル編集</button><button class="primary" data-script-edit="${item.id}" ${item.status==='unregistered'?'disabled':''}>内容編集</button>`:`<button class="secondary" data-script-preview="${item.id}">内容確認</button><button class="primary" data-script-start="${item.id}" ${item.status!=='published'?'disabled':''}>${item.status==='published'?'商談を開始':'利用できません'}</button>`}</footer></article>`;
+  return `<article class="script-card"><header><span>${department?.name||item.department_id}</span><em class="status ${item.status}">${statusLabel(item.status)}</em></header><h2>${item.name}</h2><p>${item.products.join('＋')||'商材未登録'}</p><dl><div><dt>対象顧客</dt><dd>${item.customer_type||'—'}</dd></div><div><dt>バージョン</dt><dd>${item.version||'—'}</dd></div><div><dt>最終更新日</dt><dd>${item.updated_at?.slice(0,10)||'—'}</dd></div><div><dt>フェーズ数</dt><dd>${item.phase_count||0}</dd></div><div><dt>使用回数</dt><dd>${item.use_count||0}</dd></div></dl><footer>${admin?`<button class="secondary" data-script-preview="${item.id}">確認</button><button class="secondary" data-script-rename="${item.id}">タイトル編集</button><button class="secondary" data-script-flow="${item.id}">フロー編集</button><button class="primary" data-script-edit="${item.id}" ${item.status==='unregistered'?'disabled':''}>内容編集</button>`:`<button class="secondary" data-script-preview="${item.id}">内容確認</button><button class="primary" data-script-start="${item.id}" ${item.status!=='published'?'disabled':''}>${item.status==='published'?'商談を開始':'利用できません'}</button>`}</footer></article>`;
 }
 function bindScriptButtons(){
   $$('[data-script-start]').forEach(button=>button.addEventListener('click',()=>selectTalkScript(button.dataset.scriptStart)));
   $$('[data-script-preview]').forEach(button=>button.addEventListener('click',()=>openScriptPreview(button.dataset.scriptPreview)));
   $$('[data-script-rename]').forEach(button=>button.addEventListener('click',()=>openRenameScript(button.dataset.scriptRename)));
+  $$('[data-script-flow]').forEach(button=>button.addEventListener('click',()=>openScriptFlow(catalog.scripts.find(item=>item.id===button.dataset.scriptFlow))));
   $$('[data-script-edit]').forEach(button=>button.addEventListener('click',async()=>{const script=catalog.scripts.find(item=>item.id===button.dataset.scriptEdit);await loadScriptPhases(button.dataset.scriptEdit);renderPhases();$('#phase-editor-title').textContent=`${script?.name||'トークスクリプト'}・フェーズ編集`;$('#phase-editor').hidden=false;$('#phase-editor').scrollIntoView({behavior:'smooth'});editPhase(config.phases[0]?.id)}));
 }
 function openRenameScript(id){
@@ -148,7 +149,107 @@ $('#rename-script-form').addEventListener('submit',async event=>{
     $('#rename-script-dialog').close();toast('トークスクリプト名を保存しました');
   }catch(error){toast(error.message)}
 });
-$('#open-create-script').addEventListener('click',()=>{$('#create-script-form').reset();$('#create-script-form').elements.customerType.value='店舗オーナー・小規模事業者';$('#create-script-dialog').showModal();$('#create-script-form').elements.name.focus()});
+// ===== トークスクリプトを商談フローごと新規作成・編集する =====
+let flowPhases=[],flowEditingId=null;
+const flowLine=value=>String(value||'').split('\n').map(v=>v.trim()).filter(Boolean);
+function flowPhaseRow(phase,index){
+  const move=(from,to)=>{if(to<0||to>=flowPhases.length)return;readFlowPhases();const [item]=flowPhases.splice(from,1);flowPhases.splice(to,0,item);renderFlowPhases()};
+  const up=el('button',{type:'button',text:'↑'});up.addEventListener('click',()=>move(index,index-1));
+  const down=el('button',{type:'button',text:'↓'});down.addEventListener('click',()=>move(index,index+1));
+  const remove=el('button',{type:'button',class:'danger',text:'削除'});
+  remove.addEventListener('click',()=>{readFlowPhases();flowPhases.splice(index,1);renderFlowPhases()});
+  const field=(label,key,{tag='input',rows,placeholder,wide,value}={})=>{
+    const control=tag==='textarea'?el('textarea',{rows:String(rows||3),placeholder:placeholder||''}):el('input',{placeholder:placeholder||''});
+    control.value=value??'';control.dataset.flowField=key;
+    return el('label',{class:wide?'wide':''},[document.createTextNode(label),control]);
+  };
+  const head=el('div',{class:'flow-phase-head'},[
+    el('span',{class:'flow-index',text:`フェーズ ${index+1}`}),
+    el('div',{class:'flow-move'},[up,down,remove])
+  ]);
+  const grid=el('div',{class:'flow-grid'},[
+    field('記号','group',{placeholder:'①',value:phase.group}),
+    field('フェーズ名','name',{placeholder:'例：前提のすり合わせと本日のアジェンダ',value:phase.name}),
+    field('このフェーズの目的','goal',{placeholder:'例：認識をそろえ決裁権を確認する',value:phase.goal}),
+    field('読み上げスクリプト','script',{tag:'textarea',rows:8,wide:true,placeholder:'商談で読み上げる本文',value:phase.script}),
+    field('確認事項（1行1項目）','questions',{tag:'textarea',rows:4,placeholder:'認識のズレがない\n決裁権を確認した',value:(phase.questions||[]).join('\n')}),
+    field('次へ進む条件','transition',{tag:'textarea',rows:4,placeholder:'例：認識が合えば②へ進む',value:phase.transition}),
+    field('禁止表現（1行1項目）','prohibited',{tag:'textarea',rows:3,wide:true,placeholder:'絶対に安くなる',value:(phase.prohibited||[]).join('\n')})
+  ]);
+  return el('section',{class:'flow-phase'},[head,grid]);
+}
+function renderFlowPhases(){
+  const list=$('#flow-phase-list');list.textContent='';
+  if(!flowPhases.length)list.append(el('p',{class:'muted small',text:'「＋ フェーズを追加」または「現在の商談フローを読み込む」から始めてください。'}));
+  flowPhases.forEach((phase,index)=>list.append(flowPhaseRow(phase,index)));
+  $('#flow-count').textContent=`${flowPhases.length}フェーズ`;
+}
+// 画面の入力値を配列へ取り込む（並べ替え・保存の前に必ず呼ぶ）
+function readFlowPhases(){
+  flowPhases=[...$('#flow-phase-list').querySelectorAll('.flow-phase')].map((row,index)=>{
+    const value=key=>row.querySelector(`[data-flow-field="${key}"]`)?.value||'';
+    return {
+      id:flowPhases[index]?.id,
+      group:value('group').trim()||`${index+1}`,
+      name:value('name').trim(),
+      goal:value('goal').trim(),
+      script:value('script'),
+      questions:flowLine(value('questions')),
+      transition:value('transition').trim(),
+      prohibited:flowLine(value('prohibited'))
+    };
+  });
+  return flowPhases;
+}
+function openScriptFlow(script){
+  const form=$('#script-flow-form');form.reset();
+  flowEditingId=script?.id||null;
+  $('#script-flow-title').textContent=script?`${script.name}のフローを編集`:'トークスクリプトを新規作成';
+  $('#script-flow-message').textContent='';
+  if(script){
+    form.elements.name.value=script.name||'';
+    form.elements.products.value=(script.products||[]).join('、');
+    form.elements.customerType.value=script.customer_type||'';
+    form.elements.version.value=script.version||'';
+  }else{
+    form.elements.customerType.value='店舗オーナー・小規模事業者';
+    form.elements.version.value=new Date().toLocaleDateString('ja-JP');
+  }
+  flowPhases=[];renderFlowPhases();
+  $('#script-flow-dialog').showModal();
+  if(script)loadFlowFrom(script.id);
+}
+async function loadFlowFrom(talkScriptId){
+  try{
+    const data=await api(`/api/sales/config?talkScriptId=${encodeURIComponent(talkScriptId)}`);
+    flowPhases=data.phases.map(phase=>({group:phase.group_name,name:phase.name,goal:phase.goal,script:phase.base_script,questions:phase.required_questions||[],transition:phase.transition_conditions,prohibited:phase.prohibited_phrases||[]}));
+    renderFlowPhases();
+  }catch(error){$('#script-flow-message').textContent=error.message}
+}
+$('#flow-add-phase').addEventListener('click',()=>{readFlowPhases();flowPhases.push({group:`${flowPhases.length+1}`,name:'',goal:'',script:'',questions:[],transition:'',prohibited:[]});renderFlowPhases()});
+$('#flow-load-default').addEventListener('click',()=>loadFlowFrom($('#preparation-script-select').value||selectedScript));
+$('#close-script-flow').addEventListener('click',()=>$('#script-flow-dialog').close());
+$('#cancel-script-flow').addEventListener('click',()=>$('#script-flow-dialog').close());
+$('#script-flow-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  const form=event.currentTarget,meta=Object.fromEntries(new FormData(form));
+  const phases=readFlowPhases();
+  if(!phases.length)return void($('#script-flow-message').textContent='フェーズを1つ以上追加してください');
+  const missing=phases.findIndex(phase=>!phase.name);
+  if(missing>=0)return void($('#script-flow-message').textContent=`フェーズ${missing+1}のフェーズ名を入力してください`);
+  $('#script-flow-message').textContent='保存しています…';
+  try{
+    let scriptId=flowEditingId;
+    if(scriptId)await api(`/api/sales/talk-scripts/${encodeURIComponent(scriptId)}`,{method:'PUT',body:JSON.stringify({name:meta.name,actor:'管理者'})});
+    else scriptId=(await api('/api/sales/talk-scripts',{method:'POST',body:JSON.stringify({...meta,actor:'管理者'})})).script.id;
+    const data=await api(`/api/sales/talk-scripts/${encodeURIComponent(scriptId)}/phases`,{method:'PUT',body:JSON.stringify({phases,version:meta.version,actor:'管理者'})});
+    catalog=await api('/api/sales/catalog');
+    renderAdminScripts();renderHomeTemplates();renderPreparationScriptSelector();
+    $('#script-flow-dialog').close();
+    toast(`${data.script.name}を${flowEditingId?'更新':'作成'}しました（${phases.length}フェーズ）`);
+  }catch(error){$('#script-flow-message').textContent=error.message}
+});
+$('#open-create-script').addEventListener('click',()=>openScriptFlow(null));
 $('#close-create-script').addEventListener('click',()=>$('#create-script-dialog').close());
 $('#create-script-form').addEventListener('submit',async event=>{
   event.preventDefault();
@@ -287,14 +388,10 @@ function preparationFocus(item){
   const results=[];
   const add=(id,reason)=>{if(!results.some(value=>value.id===id))results.push({id,reason})};
   if(/詳しく|不明|ほとんど|認識/.test(text))add('agenda','ISとの認識差をなくし、今日の進め方をそろえる');
-  if(/不要|SNS|Google|必要性/.test(text))add('hp_impression','HPが不要と感じる背景を切り分ける');
-  if(/売上|集客|客数|採用|人手|今後/.test(text))add('future','今後実現したい状態を具体化する');
-  if(/課題|背景|独立|店舗/.test(text))add('hearing','店舗の背景と未解決課題を深掘りする');
-  if(/予約|導線|公式|信用|情報|採用|集客/.test(text))add('hp_role','ヒアリング内容から顧客専用のHPの役割を提示する');
-  if(/品質|デザイン|事例/.test(text))add('examples','制作事例を見せて品質への肯定を取る');
-  if(/条件|無料|作りたい|興味/.test(text))add('test_closing','条件説明前にHP制作への仮合意を確認する');
+  if(/不要|SNS|Google|必要性|売上|集客|客数|採用|人手|今後|課題|背景|独立|店舗|品質|デザイン|事例/.test(text))add('hp_interest','HPへの印象と今後の展望を聞き、事例でクオリティへの肯定を取る');
+  if(/条件|無料|作りたい|興味/.test(text))add('company','HPが高額という前提を崩してから条件へ進む');
   if(/電気|料金|エネパル/.test(text))add('free_conditions','無料制作と電気切り替えの関係を正確に説明する');
-  if(!results.length){add('hp_impression','HPへの現在の印象を確認する');add('future','今後のお店の方向性を確認する');add('hp_role','この店舗に合うHPの役割を作る')}
+  if(!results.length){add('company','HPへの現在の印象を確認する');add('hp_interest','今後の展望と事例でクオリティへの肯定を取る');add('free_conditions','無料の座組と条件を正確に説明する')}
   return results.slice(0,4);
 }
 async function showDealDetail(dealId){
@@ -532,7 +629,7 @@ function selectPhase(id){
   $('#phase-transition').textContent=currentPhase.transition_conditions;$('#prohibited').innerHTML=currentPhase.prohibited_phrases.map(item=>`<span>${item}</span>`).join('');$('#warning-box').hidden=!currentPhase.prohibited_phrases.length;
   $('#return-select').value=id;
   $('#hp-role').value=currentSession?.context_data?.hpRole||'';$('#session-notes').value=currentSession?.notes||'';
-  const rolePhase=['hp_role','hp_explanation','test_closing','lr_09','interview_phase_09'].includes(id);$('#context-fields').hidden=!rolePhase;$('#context-fields').classList.toggle('highlight-role',rolePhase);
+  const rolePhase=['hp_interest','lr_09','interview_phase_09'].includes(id);$('#context-fields').hidden=!rolePhase;$('#context-fields').classList.toggle('highlight-role',rolePhase);
   renderApplicationGuide();
   renderInterviewSection(id);
   renderReturnRecommendations();
@@ -562,8 +659,8 @@ function renderApplicationGuide(){
 }
 function renderReturnRecommendations(){
   const map={
-    test_closing:[['future','③-2 今後の展望'],['hearing','③-3 店舗ヒアリング'],['hp_role','③-4 HPの役割決定'],['hp_explanation','③-5 HP説明']],
-    free_conditions:[['free_conditions','④ 無料の仕組み・条件'],['test_closing','③-8 テストクロージング'],['hp_role','③-4 HPの役割決定']],
+    hp_interest:[['company','② 会社紹介・なぜ今HP'],['hp_interest','③ HPに対する興味付け']],
+    free_conditions:[['hp_interest','③ HPに対する興味付け'],['free_conditions','④ 条件ばらし']],
     application:[['application','⑤ 申込書の該当項目'],['free_conditions','④ 無料の仕組み・条件']]
   };
   const items=map[currentPhase?.id]||[];
@@ -948,18 +1045,18 @@ $('#return-step').addEventListener('click',()=>selectPhase($('#return-select').v
 $('#objection-button').addEventListener('click',()=>{$('#assist-panel').classList.add('attention');$('#customer-statement').focus()});
 $('#next-step').addEventListener('click',()=>{
   const index=config.phases.findIndex(phase=>phase.id===currentPhase.id);if(index<0||index===config.phases.length-1)return toast('最後のステップです。商談結果を保存してください。');
-  if(currentPhase.id==='test_closing'&&!gateComplete())return openGate();
+  if(currentPhase.id==='hp_interest'&&!gateComplete())return openGate();
   selectPhase(config.phases[index+1].id);
 });
 function gateRequirements(){
   const state=currentSession?.step_state||{};
   const checked=id=>Array.isArray(state[id])?state[id]:state[id]?.checked||[];
   return [
-    ['顧客ごとのHPの役割が決まっている',Boolean(currentSession?.context_data?.hpRole?.trim())],
-    ['顧客がその役割に納得している',checked('hp_role').includes(1)],
-    ['制作品質について肯定が取れている',checked('examples').includes(1)],
-    ['条件に問題がなければ作りたいという意思が取れている',checked('test_closing').includes(0)],
-    ['決裁者を確認している',checked('agenda').includes(3)]
+    ['HPに求める役割・用途を確認している',checked('hp_interest').includes(0)],
+    ['制作品質について肯定が取れている',checked('hp_interest').includes(1)],
+    ['費用がかからないなら喜ばれると確認できている',checked('hp_interest').includes(2)],
+    ['ホームページを作りたいという仮合意が取れている',checked('hp_interest').includes(3)],
+    ['決裁者を確認している',checked('agenda').includes(2)]
   ];
 }
 function gateComplete(){return gateRequirements().every(([,done])=>done)}
