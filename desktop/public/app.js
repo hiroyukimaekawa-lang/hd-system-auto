@@ -671,12 +671,21 @@ $('#prep-view-script').addEventListener('click',()=>{if(activePreparation){$('#p
 $('#save-next-action').addEventListener('click',async()=>{if(!activePreparation?.id)return toast('この案件は次の動きを保存できません');try{const data=await api(`/api/sales/preparations/${activePreparation.id}`,{method:'PUT',body:JSON.stringify({nextAction:$('#prep-next-action').value,nextActionAt:$('#prep-next-action-at').value,actor:activePreparation.staff_id||'FS'})});activePreparation=data.preparation;toast('次の動きを保存しました');await loadDeals();$('#preparation-dialog').close()}catch(error){toast(error.message)}});
 function renderPhases(){
   const groups=[...new Set(config.phases.map(phase=>phase.group_name))];
+  let railRowCount=0;
+  // 左フェーズ一覧には「フェーズ番号＋タイトル」だけを表示する（目的・説明・本文プレビューは表示しない）
   $('#phase-list').innerHTML=groups.map(group=>{
     const phases=config.phases.filter(phase=>phase.group_name===group);
     const groupName=phases[0]?.name.replace(/^③-\d\s*/,'')||'';
-    if(group==='③'&&phases.length>1) return `<div class="phase-group"><div class="group-title"><span>${group}</span><b>HP興味付け・事例</b></div>${phases.map(phase=>`<button class="subphase" data-phase="${phase.id}"><span>${phase.name.match(/^③-\d/)?.[0]||''}</span><div><b>${phase.name.replace(/^③-\d\s*/,'')}</b></div></button>`).join('')}</div>`;
-    return `<button data-phase="${phases[0].id}"><span>${group}</span><div><b>${groupName}</b><small>${phases[0].goal}</small></div></button>`;
+    if(group==='③'&&phases.length>1){
+      railRowCount+=1+phases.length;
+      return `<div class="phase-group"><div class="group-title"><span>${group}</span><b>HP興味付け・事例</b></div>${phases.map(phase=>`<button class="subphase" data-phase="${phase.id}"><span>${phase.name.match(/^③-\d/)?.[0]||''}</span><div><b>${phase.name.replace(/^③-\d\s*/,'')}</b></div></button>`).join('')}</div>`;
+    }
+    railRowCount+=1;
+    return `<button data-phase="${phases[0].id}"><span>${group}</span><div><b>${groupName}</b></div></button>`;
   }).join('');
+  const phaseRail=$('.phase-rail');
+  $('#phase-list').style.setProperty('--phase-count',String(Math.max(railRowCount,1)));
+  phaseRail?.classList.toggle('phase-rail-scroll',railRowCount>12);
   $('#admin-phase-list').innerHTML=config.phases.map(phase=>`<button type="button" data-admin-phase="${phase.id}"><span>${String(phase.phase_order).padStart(2,'0')}</span>${phase.name}<small>v${phase.version}</small></button>`).join('');
   $('#return-select').innerHTML=config.phases.map(phase=>`<option value="${phase.id}">${phase.group_name==='③'?phase.name:`${phase.group_name} ${phase.name}`}</option>`).join('');
   $$('[data-phase]').forEach(button=>button.addEventListener('click',()=>selectPhase(button.dataset.phase)));
@@ -703,7 +712,7 @@ function selectPhase(id){
   renderInterviewSection(id);
   renderReturnRecommendations();
   $('#objection-select').value=config.objections.find(item=>item.applicable_phase===id)?.id||'other';$('#suggestions').innerHTML='';currentSuggestion=null;
-  closeQuickObjectionPopup();$('#quick-objection-input').value='';quickObjectionSuggestion=null;quickObjectionOffset=0;
+  closeQuickObjectionPopup();hideQuickObjectionInlineHint();$('#quick-objection-input').value='';quickObjectionSuggestion=null;quickObjectionOffset=0;
   if(currentSession){currentSession.current_phase=id;scheduleProgressSave();FsMeetingNote.setPhase(id);renderMaterialBar()}
 }
 function applicationText(value,variant){
@@ -1175,25 +1184,54 @@ async function useSuggestion(index){await api(`/api/sales/suggestions/${currentS
 
 // ===== アウト即時相談：フェーズタイトル横の入力欄→承認済み/自動候補のpopup =====
 function closeQuickObjectionPopup(){$('#quick-objection-popup').hidden=true}
+function hideQuickObjectionInlineHint(){const hint=$('#quick-objection-inline-hint');if(hint)hint.hidden=true}
+function showQuickObjectionInlineHint(message){const hint=$('#quick-objection-inline-hint');if(!hint)return;hint.textContent=message;hint.hidden=false}
+// 空文字・trim後空文字・「」だけ・引用符や句読点だけの入力ではアウト候補を取得しない
+function isMeaninglessObjectionInput(value){
+  const stripped=String(value||'').replace(/[「」『』()（）"'“”‘’、。,.!?！？・:：;；\s]/g,'');
+  return stripped.length===0;
+}
+function setupQuickObjectionCandidateClamp(){
+  $$('#quick-objection-candidates .quick-objection-candidate-text').forEach(node=>{
+    const button=node.nextElementSibling;
+    if(!button||!button.hasAttribute('data-expand'))return;
+    const overflowing=node.scrollHeight-node.clientHeight>2;
+    button.hidden=!overflowing;
+    if(overflowing){
+      button.addEventListener('click',()=>{
+        const expanded=node.classList.toggle('expanded');
+        button.textContent=expanded?'閉じる':'全文を見る';
+      });
+    }
+  });
+}
 async function runQuickObjectionConsult(offset){
   if(!currentSession)return toast('先に商談を開始してください');
   if(!currentPhase)return;
   const statement=$('#quick-objection-input').value.trim();
-  if(!statement)return;
+  if(isMeaninglessObjectionInput(statement)){
+    closeQuickObjectionPopup();
+    showQuickObjectionInlineHint('アウト内容を入力してください');
+    return;
+  }
+  hideQuickObjectionInlineHint();
   if(quickObjectionBusy)return;
   quickObjectionBusy=true;
   const button=$('#quick-objection-form button[type=submit]');button.disabled=true;
   try{
     const data=await api('/api/sales/suggestions',{method:'POST',body:JSON.stringify({sessionId:currentSession.id,phaseId:currentPhase.id,statement,offset})});
     quickObjectionSuggestion=data;quickObjectionOffset=offset;
+    const candidates=(data.candidates||[]).slice(0,3);
     $('#quick-objection-echo').textContent=statement;
     $('#quick-objection-notice').textContent=data.notice;
-    $('#quick-objection-candidates').innerHTML=data.candidates.length
-      ?data.candidates.map((item,index)=>`<article class="quick-objection-candidate"><header><span class="quick-objection-badge">${escapeHtml(item.badge)}</span></header><p>${escapeHtml(item.response_text)}</p><button type="button" data-quick-use="${index}">この返答を使う</button></article>`).join('')
+    $('#quick-objection-candidates').innerHTML=candidates.length
+      ?candidates.map((item,index)=>`<article class="quick-objection-candidate"><header><span class="quick-objection-badge">${escapeHtml(item.badge)}</span></header><p class="quick-objection-candidate-text">${escapeHtml(item.response_text)}</p><button type="button" class="quick-objection-expand" data-expand hidden>全文を見る</button><button type="button" data-quick-use="${index}">この返答を使う</button></article>`).join('')
       :'<p class="muted small">候補が見つかりませんでした。</p>';
     $$('#quick-objection-candidates [data-quick-use]').forEach(node=>node.addEventListener('click',()=>useQuickObjectionSuggestion(Number(node.dataset.quickUse))));
     $('#quick-objection-more').hidden=!data.hasMore;
     $('#quick-objection-popup').hidden=false;
+    // clamp判定はpopupを表示してレイアウトが確定してから行う（非表示中はscrollHeightが常に0になるため）
+    setupQuickObjectionCandidateClamp();
   }catch(error){toast(error.message)}
   finally{quickObjectionBusy=false;button.disabled=false}
 }
@@ -1207,6 +1245,7 @@ async function useQuickObjectionSuggestion(index){
 const quickObjectionInput=$('#quick-objection-input');
 quickObjectionInput.addEventListener('compositionstart',()=>{quickObjectionComposing=true});
 quickObjectionInput.addEventListener('compositionend',()=>{quickObjectionComposing=false});
+quickObjectionInput.addEventListener('input',hideQuickObjectionInlineHint);
 quickObjectionInput.addEventListener('keydown',event=>{
   // IME変換中のEnterでは実行しない（変換確定のEnterと商談画面での誤送信を区別する）
   if(event.key==='Enter'&&(quickObjectionComposing||event.keyCode===229))event.preventDefault();
