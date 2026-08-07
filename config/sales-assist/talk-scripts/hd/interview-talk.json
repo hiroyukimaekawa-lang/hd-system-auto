@@ -6,7 +6,7 @@
   "customerType": "店舗オーナー・小規模事業者",
   "appointmentType": "HP無料制作の案内として取得したアポ",
   "version": "2026/07/30",
-  "status": "published",
+  "status": "archived",
   "updatedAt": "2026-07-30",
   "phaseSource": "src/interview-sales-script.js"
 }

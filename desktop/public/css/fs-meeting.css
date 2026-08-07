@@ -42,8 +42,35 @@ body.sidebar-collapsed main{margin-left:76px}
 .result-block p{margin:0;white-space:pre-wrap;font-size:14px}
 .result-memo{border-top:1px dashed var(--line);padding-top:6px;margin-top:6px !important}
 
+/* ===== ダッシュボード見出しのコンパクト化（商談準備・トークスクリプト） ===== */
+#view-preparation .dashboard-head,#view-templates .dashboard-head{padding:6px 0 16px}
+.dashboard-head.compact-head .eyebrow{display:none}
+.dashboard-head.compact-head h1{font-size:22px;margin:2px 0}
+.dashboard-head.compact-head p{font-size:12.5px;margin-top:2px}
+.dashboard-head.compact-head{align-items:center}
+.dashboard-head-actions{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+
 /* 商談準備フォーム */
-.prep-edit-banner{display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:#fff4e8;border:1px solid #e6c9a4;border-radius:12px;padding:12px 16px;margin-bottom:16px}
+.prep-edit-banner{display:flex;gap:14px;align-items:center;flex-wrap:wrap;background:#fff4e8;border:1px solid #e6c9a4;border-radius:12px;padding:10px 14px;margin-bottom:14px;font-size:13px}
+.prep-edit-banner b{font-weight:700}
+
+/* ===== 商談準備：使用トークをコンパクトな1行選択＋横スクロールchipsにする ===== */
+.preparation-script-picker.compact{background:#fff;border:1px solid #bfd1c8;border-radius:14px;padding:16px 18px;margin:16px 0;display:grid;grid-template-columns:1fr;gap:8px}
+.script-picker-title{font-size:11px;font-weight:800;color:#4c8877;letter-spacing:.06em}
+.preparation-script-picker.compact .script-picker-row{display:flex;gap:10px;flex-wrap:wrap;align-items:center}
+.preparation-script-picker.compact .script-picker-row select{flex:1 1 320px;min-width:0;padding:9px 11px;border:1px solid var(--line);border-radius:9px;background:var(--panel)}
+.preparation-script-picker.compact .script-picker-row button{flex:0 0 auto}
+.past-version-toggle{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);font-weight:400;flex:0 0 auto}
+.past-version-toggle input{width:auto}
+.script-picker-meta{margin:0;font-size:12px;color:var(--muted)}
+/* 注意: #preparation-script-phases は .preparation-script-picker の直下divなので、
+   旧 ".preparation-script-picker > div{display:grid}" (styles.css) より詳細度を上げて確実に上書きする */
+.preparation-script-picker.compact .preparation-script-phases{display:flex;flex-wrap:nowrap;overflow-x:auto;gap:0;margin-top:2px;padding-bottom:2px;max-height:none}
+.preparation-script-picker.compact .preparation-script-phases button{flex:0 0 auto;border:1px solid #cbd8d1;background:#fff;border-radius:999px;padding:6px 12px;font-size:12px;text-align:left;color:var(--ink);cursor:pointer;white-space:nowrap}
+.preparation-script-picker.compact .preparation-script-phases button:hover{border-color:#5f9585}
+.preparation-script-picker.compact .preparation-script-phases button:not(:last-child):after{content:"→";margin-left:10px;color:var(--muted);font-weight:400}
+.preparation-script-picker.compact .preparation-script-phases button span{display:inline-block;min-width:16px;color:#37806c;font-size:10px;font-weight:800;margin-right:3px}
+@media(max-width:700px){.script-picker-row select{flex-basis:100%}}
 .prep-fieldset{border:1px solid var(--line);border-radius:14px;padding:18px 20px;margin:0}
 .prep-fieldset legend{font-size:12px;font-weight:800;color:var(--green);padding:0 6px}
 .prep-optional{border:1px solid var(--line);border-radius:14px;padding:14px 20px;background:#fbfaf5}
@@ -284,11 +311,32 @@ body.fs-meeting-active.preinfo-hidden .deal-preinfo{display:none}
 .analysis-block .note-actions{margin-top:10px}
 
 /* ===== 中央スクリプト領域の簡略化：小さいタイトル・目的、読み上げスクリプトを主役にする ===== */
-.script-panel .meeting-phase-header{padding:10px 0 14px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+.script-panel .meeting-phase-header{position:relative;padding:10px 0 14px;margin-bottom:14px;border-bottom:1px solid var(--line)}
 .meeting-phase-title-row{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .meeting-phase-number{font-size:10px;margin:0}
 .script-panel h1.meeting-phase-title{margin:0;font:700 clamp(20px,2vw,26px)/1.35 Georgia,"Yu Mincho",serif}
 .meeting-phase-purpose{margin:4px 0 0;font-size:12px;line-height:1.5;color:var(--muted)}
+
+/* ===== アウト即時相談：フェーズタイトル横のコンパクト入力欄 ===== */
+.quick-objection{display:flex;gap:6px;align-items:center;margin-left:auto;min-width:0;flex:1 1 240px;max-width:420px}
+.quick-objection input{min-width:0;flex:1 1 auto;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);font-size:12.5px}
+.quick-objection button{flex:0 0 auto;border:0;border-radius:8px;padding:7px 13px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
+@media(max-width:1439px){.quick-objection{flex-basis:100%;max-width:none;margin-left:0;margin-top:4px}}
+.quick-objection-popup{position:absolute;right:0;top:100%;margin-top:8px;z-index:18;width:min(420px,92vw);max-width:calc(100vw - 24px);background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:14px 16px;display:grid;gap:10px}
+.quick-objection-popup>header{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
+.quick-objection-popup>header b{font-size:13px;font-weight:700;overflow-wrap:anywhere}
+.quick-objection-popup>header button{border:0;background:#e7e9e4;border-radius:8px;width:26px;height:26px;font-size:14px;cursor:pointer;flex:0 0 auto}
+#quick-objection-notice{margin:0}
+#quick-objection-candidates{display:grid;gap:8px;max-height:44vh;overflow-y:auto}
+.quick-objection-candidate{background:#fbfaf5;border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:6px}
+.quick-objection-candidate header{display:flex}
+.quick-objection-badge{font-size:10px;font-weight:800;padding:3px 9px;border-radius:999px;background:#e8eee8;color:var(--green)}
+.quick-objection-candidate p{margin:0;font-size:13px;line-height:1.55;overflow-wrap:anywhere}
+.quick-objection-candidate button{border:1px solid #cbd1c9;background:#fff;padding:7px;border-radius:7px;color:var(--green);font-weight:700;cursor:pointer;font-size:12px}
+.quick-objection-candidate button.used{background:#dff0e8}
+.quick-objection-actions{display:flex;justify-content:flex-end}
+.quick-objection-actions button{border:0;border-radius:8px;padding:7px 13px;font-size:12px;font-weight:700;cursor:pointer}
+@media(max-width:640px){.quick-objection-popup{right:0;left:0;width:auto;margin-left:0}}
 .script-panel h3.script-section-label{font-size:12px;font-weight:700;margin:0 0 10px;display:flex;align-items:center;gap:8px}
 .script-panel h3.script-section-label span{font:600 10px sans-serif;background:#dbeee5;color:#246957;padding:4px 7px;border-radius:20px}
 /* 確認事項・次へ進む条件・使用禁止表現・戻る場所は商談実行画面では非表示（データは保持しテンプレ管理画面に残す） */

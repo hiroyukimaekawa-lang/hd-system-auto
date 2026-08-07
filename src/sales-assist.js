@@ -6,6 +6,10 @@ import { MAEKAWA_PHASES } from './maekawa-sales-script.js';
 import { INTERVIEW_PHASES } from './interview-sales-script.js';
 import { fileURLToPath } from 'node:url';
 import { NOTE_SOURCES, normalizeProducts, sourceHash } from './meeting-analysis.js';
+import { safeUrl } from './url-safety.js';
+import { parseScriptStructure } from './script-structure-parser.js';
+
+export { safeUrl };
 
 const now = () => new Date().toISOString();
 const moduleRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
@@ -22,13 +26,18 @@ export function loadSalesCatalog(root = moduleRoot) {
 const parse = (value, fallback = []) => {
   try { return JSON.parse(value); } catch { return fallback; }
 };
-
-export const safeUrl = value => {
-  const raw = String(value || '').trim();
-  if (!raw) return '';
-  const candidate = /^[a-z][\w+.-]*:/i.test(raw) ? raw : /^[\w-]+(\.[\w-]+)+(\/|$)/.test(raw) ? `https://${raw}` : raw;
-  try { const url = new URL(candidate); return url.protocol === 'http:' || url.protocol === 'https:' ? url.href : ''; } catch { return ''; }
-};
+// DBに重複（同一content_hash）があっても一覧には新しい方だけを出す。削除はしない。
+function dedupeByContentHash(scripts) {
+  const indexByHash = new Map();
+  const result = [];
+  for (const script of scripts) {
+    if (!script.content_hash) { result.push(script); continue; }
+    const existingIndex = indexByHash.get(script.content_hash);
+    if (existingIndex === undefined) { indexByHash.set(script.content_hash, result.length); result.push(script); continue; }
+    if (String(script.updated_at||'') > String(result[existingIndex].updated_at||'')) result[existingIndex] = script;
+  }
+  return result;
+}
 const otherLinkList = data => {
   const raw = Array.isArray(data.otherLinks) ? data.otherLinks : String(data.otherLinks || '').split('\n');
   const extra = [{ label:'その他SNS', url:data.snsUrl }, { label:'参考資料', url:data.referenceUrl }];
@@ -73,6 +82,36 @@ const LEGACY_PHASES = [
   { id:'closing', order:8, name:'クロージング', goal:'商談結果と次の行動を双方で明確にする', script:'本日の確認事項を整理します。次は明細確認・関係者確認・再商談のいずれに進むか、時期も含めて決めましょう。', questions:['次に進めるために必要なものは何ですか？','次回の確認日はいつがよいですか？'], transition:'結果と次回行動を記録して終了', prohibited:['今日決めないと損です'] }
 ];
 export const DEFAULT_PHASES = MAEKAWA_PHASES;
+
+// 殴り書きメモ／アウト即時相談のどちらからも使う、キーワードによるアウト分類ルール（順序はそのまま予測結果の並びに影響する）
+const OBJECTION_KEYWORD_RULES = [
+  ['free_distrust', /無料|費用|怪し|本当|あとから|後から/],
+  ['electricity_satisfied', /電気.*変え|切り替えたくない|今の電気|満足/],
+  ['electricity_past_rise', /高く|上がっ|値上がり/],
+  ['decision_maker', /決裁|家族|共同|相談|確認者/],
+  ['hp_unneeded', /HP.*不要|ホームページ.*いら|必要ない/],
+  ['existing_hp', /既存.*HP|ホームページ.*ある|すでに.*サイト/],
+  ['sns_enough', /SNS.*十分|Instagram.*十分|Google.*十分/],
+  ['compare', /比較|検討|他社/],
+  ['no_time', /時間|忙し|急いで/]
+];
+export function detectObjectionIds(text) {
+  const ids = OBJECTION_KEYWORD_RULES.filter(([, pattern]) => pattern.test(String(text || ''))).map(([id]) => id);
+  return ids.length ? ids : ['other'];
+}
+
+const INTERVIEW_APPOINTMENT_SCRIPT_ID = 'hd-interview-appointment-20260806';
+// 2026/08/06 RAW原稿を、同梱の見出しガイドに沿って決定的に（LLM不要で）フェーズ化する。
+// RAW/ガイドが見つからない場合は空配列を返し、通常のシード処理には影響させない。
+function loadInterviewAppointmentImport(root = moduleRoot) {
+  const rawFile = path.join(root, 'config', 'fs-sales', 'import', 'HD_TALK_SCRIPT_INTERVIEW_20260806_RAW.md');
+  const guideFile = path.join(root, 'config', 'fs-sales', 'import', 'HD_TALK_SCRIPT_INTERVIEW_20260806_EXPECTED_PHASES.json');
+  if (!fs.existsSync(rawFile)) return { rawText: '', phases: [] };
+  const rawText = fs.readFileSync(rawFile, 'utf8');
+  const guide = fs.existsSync(guideFile) ? readJson(guideFile).phaseGuide : undefined;
+  const { phases } = parseScriptStructure(rawText, { phaseGuide: guide });
+  return { rawText, phases };
+}
 
 export const DEFAULT_OBJECTIONS = [
   ['hp_unneeded','HP不要','必要性を感じていない','hp_impression'],
@@ -169,6 +208,13 @@ export class SalesAssistStore {
     this.ensureColumn('talk_script_objection_notes','reaction_summary',"TEXT DEFAULT ''");
     this.ensureColumn('talk_script_objection_notes','commitments',"TEXT DEFAULT '[]'");
     this.ensureColumn('talk_script_objection_notes','objection_signals',"TEXT DEFAULT '[]'");
+    // draft/published/archivedのversion管理と、公開済みを破壊上書きしないための出自・重複検知列
+    this.ensureColumn('talk_scripts','source_type',"TEXT DEFAULT 'manual'");
+    this.ensureColumn('talk_scripts','source_text',"TEXT");
+    this.ensureColumn('talk_scripts','created_by',"TEXT DEFAULT ''");
+    this.ensureColumn('talk_scripts','supersedes_script_id',"TEXT DEFAULT ''");
+    this.ensureColumn('talk_scripts','content_hash',"TEXT DEFAULT ''");
+    this.ensureColumn('talk_scripts','default_for_preparation',"INTEGER DEFAULT 0");
     this.seed();
   }
   ensureColumn(table,column,type) {
@@ -192,11 +238,12 @@ export class SalesAssistStore {
       const catalogScriptIds = catalog.scripts.map(item=>item.id);
       if (catalogScriptIds.length) this.db.prepare(`DELETE FROM talk_scripts WHERE local_created=0 AND id NOT IN (${catalogScriptIds.map(()=>'?').join(',')})`).run(...catalogScriptIds);
       const departmentInsert = this.db.prepare('INSERT INTO departments(id,name,description,status,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,status=excluded.status,updated_at=excluded.updated_at');
-      const scriptInsert = this.db.prepare('INSERT INTO talk_scripts(id,department_id,name,products,customer_type,version,status,updated_at,phase_count) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET department_id=excluded.department_id,name=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.name ELSE excluded.name END,products=excluded.products,customer_type=excluded.customer_type,version=excluded.version,status=excluded.status,updated_at=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.updated_at ELSE excluded.updated_at END,phase_count=excluded.phase_count');
+      const scriptInsert = this.db.prepare('INSERT INTO talk_scripts(id,department_id,name,products,customer_type,version,status,updated_at,phase_count,default_for_preparation) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET department_id=excluded.department_id,name=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.name ELSE excluded.name END,products=excluded.products,customer_type=excluded.customer_type,version=excluded.version,status=excluded.status,updated_at=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.updated_at ELSE excluded.updated_at END,phase_count=excluded.phase_count,default_for_preparation=excluded.default_for_preparation');
       for (const item of catalog.departments) departmentInsert.run(item.id,item.name,item.description,item.status,now());
+      const interviewAppointmentImport = loadInterviewAppointmentImport();
       for (const item of catalog.scripts) {
-        const phaseCount=item.id==='hd-new-ap-20260725'?DEFAULT_PHASES.length:item.id==='hp-free-interview-talk'?INTERVIEW_PHASES.length:0;
-        scriptInsert.run(item.id,item.departmentId,item.name,JSON.stringify(item.products),item.customerType,item.version,item.status,item.updatedAt||now(),phaseCount);
+        const phaseCount=item.id==='hd-new-ap-20260725'?DEFAULT_PHASES.length:item.id==='hp-free-interview-talk'?INTERVIEW_PHASES.length:item.id===INTERVIEW_APPOINTMENT_SCRIPT_ID?interviewAppointmentImport.phases.length:0;
+        scriptInsert.run(item.id,item.departmentId,item.name,JSON.stringify(item.products),item.customerType,item.version,item.status,item.updatedAt||now(),phaseCount,item.defaultForPreparation?1:0);
       }
       const interviewVersion = 1;
       const storedInterviewVersion = Number(this.db.prepare("SELECT value FROM sales_meta WHERE key='interview_content_version'").get()?.value || 0);
@@ -209,6 +256,21 @@ export class SalesAssistStore {
           for (const item of INTERVIEW_PHASES) insertPhase.run(item.id,'hp-free-interview-talk',item.order,item.group,item.name,item.goal,item.script,JSON.stringify(item.questions),item.transition,JSON.stringify(item.prohibited),1,'published',ts);
           this.db.prepare('UPDATE talk_scripts SET phase_count=? WHERE id=?').run(INTERVIEW_PHASES.length,'hp-free-interview-talk');
           this.db.prepare("INSERT INTO sales_meta(key,value) VALUES('interview_content_version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(interviewVersion));
+        }
+      }
+      // 2026/08/06 RAWを、同梱の見出しガイド（LLM不要）でフェーズ化してpublished defaultとしてseedする
+      const interviewAppointmentVersion = 1;
+      const storedInterviewAppointmentVersion = Number(this.db.prepare("SELECT value FROM sales_meta WHERE key='interview_appointment_20260806_content_version'").get()?.value || 0);
+      if (storedInterviewAppointmentVersion < interviewAppointmentVersion) {
+        const appointmentScript = this.db.prepare('SELECT * FROM talk_scripts WHERE id=?').get(INTERVIEW_APPOINTMENT_SCRIPT_ID);
+        if (appointmentScript && interviewAppointmentImport.phases.length) {
+          const insertPhase = this.db.prepare('INSERT INTO talk_script_phases(id,talk_script_id,phase_order,group_name,name,goal,base_script,required_questions,transition_conditions,prohibited_phrases,version,status,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+          this.db.prepare('DELETE FROM talk_script_phases WHERE talk_script_id=?').run(INTERVIEW_APPOINTMENT_SCRIPT_ID);
+          const ts = now();
+          interviewAppointmentImport.phases.forEach((item, index) => insertPhase.run(`${INTERVIEW_APPOINTMENT_SCRIPT_ID}-${String(index + 1).padStart(2, '0')}`, INTERVIEW_APPOINTMENT_SCRIPT_ID, item.order, item.group, item.title, '', item.script, JSON.stringify([]), '', JSON.stringify([]), 1, 'published', ts));
+          const contentHash = crypto.createHash('sha256').update(interviewAppointmentImport.rawText.trim()).digest('hex');
+          this.db.prepare("UPDATE talk_scripts SET phase_count=?,source_type='rule_import',content_hash=? WHERE id=?").run(interviewAppointmentImport.phases.length, contentHash, INTERVIEW_APPOINTMENT_SCRIPT_ID);
+          this.db.prepare("INSERT INTO sales_meta(key,value) VALUES('interview_appointment_20260806_content_version',?) ON CONFLICT(key) DO UPDATE SET value=excluded.value").run(String(interviewAppointmentVersion));
         }
       }
       for (const item of DEFAULT_OBJECTIONS) {
@@ -225,9 +287,14 @@ export class SalesAssistStore {
   }
   catalog() {
     const departments=this.db.prepare('SELECT * FROM departments ORDER BY name').all();
-    const scripts=this.db.prepare('SELECT * FROM talk_scripts ORDER BY department_id,status DESC,name').all().map(row=>({...row,products:parse(row.products)}));
+    const scripts=dedupeByContentHash(this.db.prepare('SELECT * FROM talk_scripts ORDER BY department_id,status DESC,name').all().map(row=>({...row,products:parse(row.products)})));
     const applicationGuide=loadSalesCatalog().applicationGuide;
     return { departments, scripts, applicationGuide };
+  }
+  // 新規商談準備の既定スクリプト。フラグが立った公開中スクリプトが無ければ従来の既定を維持する
+  defaultTalkScriptId() {
+    const row=this.db.prepare("SELECT id FROM talk_scripts WHERE default_for_preparation=1 AND status='published' ORDER BY updated_at DESC LIMIT 1").get();
+    return row?.id||'hd-new-ap-20260725';
   }
   updateTalkScript(id,data) {
     const script=this.db.prepare('SELECT * FROM talk_scripts WHERE id=?').get(id);if(!script)return null;
@@ -240,10 +307,32 @@ export class SalesAssistStore {
     const name=String(data.name||'').trim();if(!name)throw new Error('トークスクリプト名を入力してください');
     const products=Array.isArray(data.products)?data.products:String(data.products||'').split(/[,、＋+\n]/).map(item=>item.trim()).filter(Boolean);
     if(!products.length)throw new Error('対象商材を1つ以上入力してください');
+    // 長文貼り付け→自動フロー化で作った場合だけ、原文と出自・重複検知ハッシュを保存する（手動作成は従来どおり）
+    const sourceType=['manual','rule_import','ai_import'].includes(data.sourceType)?data.sourceType:'manual';
+    const sourceText=data.sourceText!==undefined&&data.sourceText!==null?String(data.sourceText):null;
+    const contentHash=sourceText&&sourceText.trim()?crypto.createHash('sha256').update(sourceText.trim()).digest('hex'):'';
+    if(contentHash){
+      const duplicate=this.db.prepare("SELECT id,name FROM talk_scripts WHERE content_hash=? AND status!='archived'").get(contentHash);
+      if(duplicate)throw new Error(`同じ内容のトークスクリプトが既に登録されています（${duplicate.name}）。既存のスクリプトを編集してください。`);
+    }
+    // 公開済みの直接破壊上書きを避けるため、貼り付け由来の新規作成は既定でdraftにする（人が確認してから公開）
+    const status=['draft','published'].includes(data.status)?data.status:'published';
     const id=`hd-local-${crypto.randomUUID()}`,timestamp=now(),version=String(data.version||new Date().toLocaleDateString('ja-JP')).trim();
-    this.db.prepare('INSERT INTO talk_scripts(id,department_id,name,products,customer_type,version,status,updated_at,phase_count,title_customized,local_created) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
-      .run(id,'hd',name,JSON.stringify(products),String(data.customerType||'店舗オーナー・小規模事業者').trim(),version,'published',timestamp,DEFAULT_PHASES.length,1,1);
-    this.audit(data.actor||'管理者','create','talk_script',id,{name,products,version});
+    this.db.prepare('INSERT INTO talk_scripts(id,department_id,name,products,customer_type,version,status,updated_at,phase_count,title_customized,local_created,source_type,source_text,content_hash,created_by,supersedes_script_id) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(id,'hd',name,JSON.stringify(products),String(data.customerType||'店舗オーナー・小規模事業者').trim(),version,status,timestamp,DEFAULT_PHASES.length,1,1,sourceType,sourceText,contentHash,String(data.actor||data.createdBy||''),String(data.supersedesScriptId||''));
+    this.audit(data.actor||'管理者','create','talk_script',id,{name,products,version,status});
+    return this.catalog().scripts.find(item=>item.id===id);
+  }
+  publishTalkScript(id,actor='FS') {
+    const script=this.db.prepare('SELECT * FROM talk_scripts WHERE id=?').get(id);if(!script)return null;
+    this.db.prepare("UPDATE talk_scripts SET status='published',updated_at=? WHERE id=?").run(now(),id);
+    this.audit(actor,'publish','talk_script',id,{previousStatus:script.status});
+    return this.catalog().scripts.find(item=>item.id===id);
+  }
+  archiveTalkScript(id,actor='FS') {
+    const script=this.db.prepare('SELECT * FROM talk_scripts WHERE id=?').get(id);if(!script)return null;
+    this.db.prepare("UPDATE talk_scripts SET status='archived',updated_at=? WHERE id=?").run(now(),id);
+    this.audit(actor,'archive','talk_script',id,{previousStatus:script.status});
     return this.catalog().scripts.find(item=>item.id===id);
   }
   replaceTalkScriptPhases(talkScriptId,phases,data={}) {
@@ -260,7 +349,7 @@ export class SalesAssistStore {
   }
   objections() { return this.db.prepare('SELECT * FROM objections WHERE status=? ORDER BY category,subcategory').all('published'); }
   start(data) {
-    const talkScript=this.db.prepare('SELECT * FROM talk_scripts WHERE id=? AND status=?').get(data.talkScriptId||'hd-new-ap-20260725','published');
+    const talkScript=this.db.prepare('SELECT * FROM talk_scripts WHERE id=? AND status=?').get(data.talkScriptId||this.defaultTalkScriptId(),'published');
     if(!talkScript) throw new Error('公開中のトークスクリプトを選択してください');
     const id = crypto.randomUUID(); const started = now();
     this.db.prepare(`INSERT INTO sales_sessions(id,staff_id,customer_name,business_type,owner_name,meeting_type,product_id,existing_hp,electricity_company,handoff,concerns,current_phase,department_id,talk_script_id,talk_script_version,context_data,deal_id,started_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
@@ -270,7 +359,7 @@ export class SalesAssistStore {
     return this.session(id);
   }
   prepare(data) {
-    const talkScript=this.db.prepare('SELECT * FROM talk_scripts WHERE id=? AND status=?').get(data.talkScriptId||'hd-new-ap-20260725','published');
+    const talkScript=this.db.prepare('SELECT * FROM talk_scripts WHERE id=? AND status=?').get(data.talkScriptId||this.defaultTalkScriptId(),'published');
     if(!talkScript) throw new Error('公開中のトークスクリプトを選択してください');
     const id=crypto.randomUUID(),timestamp=now();
     const context=buildContext(data);
@@ -312,9 +401,18 @@ export class SalesAssistStore {
     const row = this.db.prepare('SELECT * FROM sales_sessions WHERE id=?').get(id);
     return row ? { ...row, context_data:parse(row.context_data,{}), step_state:parse(row.step_state,{}) } : null;
   }
+  // objectionIdが未指定（アウト即時相談の自由入力）なら、キーワードルールで自動分類する。
+  // 明示的に分類できたときは「承認済み」、'other'に落ちたときは「自動候補」バッジにする（実LLMを使ったときだけ「AI候補」）。
   suggest(data) {
-    const objection = this.db.prepare('SELECT * FROM objections WHERE id=?').get(data.objectionId) || this.db.prepare('SELECT * FROM objections WHERE id=?').get('other');
-    const candidates = this.db.prepare('SELECT * FROM objection_responses WHERE objection_id=? AND status=? ORDER BY id LIMIT 3').all(objection.id,'published');
+    const auto = !data.objectionId || data.objectionId === 'auto';
+    const detectedId = auto ? detectObjectionIds(data.statement).at(0) : data.objectionId;
+    const matchedSpecifically = auto ? detectedId !== 'other' : true;
+    const objection = this.db.prepare('SELECT * FROM objections WHERE id=?').get(detectedId) || this.db.prepare('SELECT * FROM objections WHERE id=?').get('other');
+    const offset = Math.max(0, Number(data.offset) || 0);
+    const rawCandidates = this.db.prepare('SELECT * FROM objection_responses WHERE objection_id=? AND status=? ORDER BY id LIMIT 3 OFFSET ?').all(objection.id,'published',offset);
+    const totalCount = this.db.prepare('SELECT COUNT(*) count FROM objection_responses WHERE objection_id=? AND status=?').get(objection.id,'published').count;
+    const badge = matchedSpecifically ? '承認済み' : '自動候補';
+    const candidates = rawCandidates.map(item => ({ ...item, badge }));
     const phase = this.db.prepare('SELECT * FROM sales_phases WHERE id=?').get(data.phaseId);
     const prohibited = parse(phase?.prohibited_phrases || '[]');
     const warnings = prohibited.filter(value => String(data.statement||'').includes(value));
@@ -322,7 +420,7 @@ export class SalesAssistStore {
     this.db.prepare('INSERT INTO ai_suggestions(id,session_id,phase_id,customer_statement,detected_objection,generated_candidates,created_at) VALUES(?,?,?,?,?,?,?)')
       .run(id,data.sessionId,data.phaseId,data.statement||'',objection.id,JSON.stringify(candidates),now());
     this.db.prepare('UPDATE sales_sessions SET current_phase=? WHERE id=?').run(data.phaseId,data.sessionId);
-    return { id, objection, candidates, warnings, aiUsed:false, notice:'承認済みアウト返しを表示しています' };
+    return { id, objection, candidates, warnings, aiUsed:false, hasMore:totalCount>offset+candidates.length, notice: matchedSpecifically ? '承認済みアウト返しを表示しています' : '該当分類が明確でないため自動候補を表示しています' };
   }
   addFact(sessionId,data) {
     if(!this.session(sessionId))return null;
@@ -345,18 +443,7 @@ export class SalesAssistStore {
   addObjectionNote(talkScriptId,data) {
     const script=this.db.prepare('SELECT * FROM talk_scripts WHERE id=?').get(talkScriptId);if(!script)return null;
     const memo=String(data.memo||'').trim();if(!memo)throw new Error('殴り書きメモを入力してください');
-    const rules=[
-      ['free_distrust',/無料|費用|怪し|本当|あとから|後から/],
-      ['electricity_satisfied',/電気.*変え|切り替えたくない|今の電気|満足/],
-      ['electricity_past_rise',/高く|上がっ|値上がり/],
-      ['decision_maker',/決裁|家族|共同|相談|確認者/],
-      ['hp_unneeded',/HP.*不要|ホームページ.*いら|必要ない/],
-      ['existing_hp',/既存.*HP|ホームページ.*ある|すでに.*サイト/],
-      ['sns_enough',/SNS.*十分|Instagram.*十分|Google.*十分/],
-      ['compare',/比較|検討|他社/],
-      ['no_time',/時間|忙し|急いで/]
-    ];
-    const ids=rules.filter(([,pattern])=>pattern.test(memo)).map(([id])=>id);if(!ids.length)ids.push('other');
+    const ids=detectObjectionIds(memo);
     const statements=memo.split(/[\n。！？!?]+/).map(item=>item.trim()).filter(Boolean);
     const commitments=statements.filter(item=>/作りたい|やりたい|興味|良い|いいと思|問題ない|検討|確認する|相談する|送る|用意する|進め/.test(item)).slice(0,6);
     const objectionSignals=statements.filter(item=>/不安|疑|怪し|嫌|いらない|必要ない|難しい|高い|変えたく|できない|分からない|確認が必要|相談が必要|条件/.test(item)).slice(0,6);

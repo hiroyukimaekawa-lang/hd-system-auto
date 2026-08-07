@@ -1,0 +1,113 @@
+{
+  "version": 2,
+  "script": {
+    "id": "hp-free-interview-talk",
+    "name": "取材用トーク",
+    "version": "2026/07/30",
+    "product": "HP無料制作",
+    "audience": [
+      "店舗オーナー",
+      "小規模事業者"
+    ],
+    "phaseCount": 10,
+    "canonicalRule": "ユーザー提示の読み上げスクリプト・確認事項・次へ進む条件を変更しない"
+  },
+  "phases": [
+    {
+      "order": 1,
+      "phaseId": "interview_phase_01",
+      "name": "挨拶・前提のすり合わせ",
+      "materialIds": []
+    },
+    {
+      "order": 2,
+      "phaseId": "interview_phase_02",
+      "name": "本日のアジェンダ",
+      "materialIds": []
+    },
+    {
+      "order": 3,
+      "phaseId": "interview_phase_03",
+      "name": "決裁権の確認",
+      "materialIds": []
+    },
+    {
+      "order": 4,
+      "phaseId": "interview_phase_04",
+      "name": "会社紹介",
+      "materialIds": [
+        "fs-main-proposal-deck"
+      ]
+    },
+    {
+      "order": 5,
+      "phaseId": "interview_phase_05",
+      "name": "なぜ今ホームページなのか",
+      "materialIds": [
+        "fs-main-proposal-deck"
+      ]
+    },
+    {
+      "order": 6,
+      "phaseId": "interview_phase_06",
+      "name": "当社がホームページ事業を行う理由",
+      "materialIds": [
+        "fs-main-proposal-deck"
+      ]
+    },
+    {
+      "order": 7,
+      "phaseId": "interview_phase_07",
+      "name": "制作事例の紹介",
+      "materialIds": [
+        "sankouin-reference-site",
+        "artcrafter-reference-site"
+      ]
+    },
+    {
+      "order": 8,
+      "phaseId": "interview_phase_08",
+      "name": "インタビュー",
+      "materialIds": [],
+      "structuredFields": [
+        "openedAtAndReason",
+        "strengthAndConcept",
+        "recommendedProducts",
+        "targetCustomers",
+        "futureVision",
+        "currentChallenges"
+      ]
+    },
+    {
+      "order": 9,
+      "phaseId": "interview_phase_09",
+      "name": "ホームページの用途・方向性確認",
+      "materialIds": [
+        "sankouin-reference-site",
+        "artcrafter-reference-site"
+      ],
+      "materialsOptional": true
+    },
+    {
+      "order": 10,
+      "phaseId": "interview_phase_10",
+      "name": "無料制作の条件提示・申し込み",
+      "materialIds": [
+        "fs-main-proposal-deck",
+        "enepal-official-site",
+        "enepal-palpower-price-list",
+        "enepal-kanto-area-fees",
+        "enepal-application-template"
+      ],
+      "sectionIds": [
+        "phase_10_scheme",
+        "phase_10_provider_check",
+        "phase_10_electricity_offer",
+        "phase_10_card_branch",
+        "phase_10_application_form",
+        "phase_10_objection_pre_screening",
+        "phase_10_line_cloudsign"
+      ]
+    }
+  ]
+}

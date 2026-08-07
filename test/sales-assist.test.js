@@ -359,7 +359,7 @@ test('商談準備と商談記録をObsidian Markdownへ保存できる', () => 
   const store=new SalesAssistStore(path.join(directory,'sales.sqlite'));
   try {
     const archive=new ObsidianSalesArchive({vaultId:'test',folder:'HD',obsidianConfigPath:obsidianConfig});
-    const prepared=store.prepare({customerName:'保存テスト',handoff:'IS引き継ぎ本文'});
+    const prepared=store.prepare({talkScriptId:'hd-new-ap-20260725',customerName:'保存テスト',handoff:'IS引き継ぎ本文'});
     assert.ok(fs.existsSync(archive.syncPreparation(store,prepared.id)));
     const session=store.openPreparation(prepared.id);
     store.addFact(session.id,{category:'commitment',value:'条件が合えば進めたい'});
@@ -394,16 +394,23 @@ test('取材用トークスクリプトのフェーズ定義が要件どおり�
   assert.deepEqual(INTERVIEW_PHASES.map(p => p.id), ['interview_phase_01','interview_phase_02','interview_phase_03','interview_phase_04','interview_phase_05','interview_phase_06','interview_phase_07','interview_phase_08','interview_phase_09','interview_phase_10']);
 });
 
-test('取材用トークスクリプトのフェーズを商談で使用できる', () => withStore(store => {
+test('取材用トークスクリプト（2026/07/30・archived）は物理削除されずフェーズを保持する', () => withStore(store => {
+  assert.equal(store.catalog().scripts.find(item => item.id === 'hp-free-interview-talk').status, 'archived', '旧版はarchivedとして残る（削除しない）');
   const phases = store.phases('hp-free-interview-talk');
   assert.equal(phases.length, 10, 'DBから取得した取材用フェーズが10件');
   assert.equal(phases[0].id, 'interview_phase_01');
   assert.equal(phases[9].id, 'interview_phase_10');
+  assert.throws(() => store.start({ talkScriptId:'hp-free-interview-talk', customerName:'取材テスト' }), /公開中/, 'archived版から新規商談は開始できない');
+  // 過去に開始済みの商談は、archive後もそのversionのフェーズを参照し続ける
+  store.publishTalkScript('hp-free-interview-talk');
   const session = store.start({ talkScriptId:'hp-free-interview-talk', customerName:'取材テスト', staffId:'前川' });
+  store.archiveTalkScript('hp-free-interview-talk');
   assert.equal(session.talk_script_id, 'hp-free-interview-talk');
+  assert.equal(store.phases(session.talk_script_id).length, 10, 'archive後も当時参照していたversionのフェーズは読める');
 }));
 
 test('インタビューデータをCRUDできる', () => withStore(store => {
+  store.publishTalkScript('hp-free-interview-talk');
   const session = store.start({ talkScriptId:'hp-free-interview-talk', customerName:'インタビューテスト' });
   assert.deepEqual(store.interviewData(session.id), {}, '初期は空');
   const saved = store.saveInterviewData(session.id, {
@@ -424,6 +431,7 @@ test('インタビューデータをCRUDできる', () => withStore(store => {
 }));
 
 test('資料開封ログを保存できる', () => withStore(store => {
+  store.publishTalkScript('hp-free-interview-talk');
   const session = store.start({ talkScriptId:'hp-free-interview-talk', customerName:'資料ログテスト' });
   const log = store.logMaterialOpen(session.id, 'fs-main-proposal-deck', 'interview_phase_06', '');
   assert.ok(log.id);

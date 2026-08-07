@@ -18,9 +18,18 @@
     </section>
 
     <section id="view-preparation" class="view narrow">
-      <div class="dashboard-head"><div><span class="eyebrow">MEETING PREPARATION</span><h1>商談準備</h1><p>ISからの引き継ぎを貼り付けて整理し、商談で使う店舗情報を登録します。保存すると「各種案件用」に追加されます。</p></div><button class="secondary" data-view="deals">各種案件用へ →</button></div>
-      <div id="prep-edit-banner" class="prep-edit-banner" hidden><b>案件情報を編集しています</b><span id="prep-edit-target"></span><button type="button" id="cancel-prep-edit" class="secondary">編集をやめて新規作成に戻す</button></div>
-      <section class="preparation-script-picker"><div><span class="eyebrow">TALK SCRIPT</span><h2>使用するトークスクリプトを選択</h2><p>案件に使用するスクリプトを選ぶと、内容と各フェーズをここで確認できます。</p><label>使用スクリプト<select id="preparation-script-select"></select></label><div class="actions"><button type="button" id="preview-preparation-script" class="secondary">トーク内容を見る</button></div></div><article id="preparation-script-summary"><span>選択中のスクリプト</span><h3 id="preparation-script-name">—</h3><p id="preparation-script-meta">—</p><div id="preparation-script-phases" class="preparation-script-phases"></div></article></section>
+      <div class="dashboard-head compact-head"><div><h1>商談準備</h1><p>案件情報と使用トークを確認して商談を開始します</p></div><button class="secondary" data-view="deals">各種案件へ →</button></div>
+      <div id="prep-edit-banner" class="prep-edit-banner" hidden><b>編集中：<span id="prep-edit-target"></span></b><button type="button" id="cancel-prep-edit" class="secondary">新規作成へ戻す</button></div>
+      <section class="preparation-script-picker compact">
+        <span class="script-picker-title">使用トーク</span>
+        <div class="script-picker-row">
+          <select id="preparation-script-select"></select>
+          <button type="button" id="preview-preparation-script" class="secondary">内容確認</button>
+          <label class="past-version-toggle"><input type="checkbox" id="preparation-show-archived"> 過去版も表示</label>
+        </div>
+        <p id="preparation-script-meta" class="script-picker-meta">—</p>
+        <div id="preparation-script-phases" class="preparation-script-phases"></div>
+      </section>
       <form id="preparation-form" class="panel form-grid">
         <input type="hidden" name="departmentId" value="hd"><input type="hidden" name="talkScriptId" value="hd-new-ap-20260725">
         <input type="hidden" name="businessType" value="飲食店"><input type="hidden" name="meetingType" value="初回商談"><input type="hidden" name="appointmentPattern"><input type="hidden" name="temperatureReason"><input type="hidden" name="issues"><input type="hidden" name="hookPoints"><input type="hidden" name="talkDetails"><input type="hidden" name="gbp"><input type="hidden" name="portalSite"><input type="hidden" name="social"><input type="hidden" name="electricityCompany">
@@ -67,7 +76,9 @@
       <section id="material-bar" class="material-bar"></section>
       <div class="assist-grid">
         <aside class="phase-rail"><span class="eyebrow">SALES FLOW</span><h2>商談フロー</h2><div id="phase-list"></div></aside>
-        <section class="script-panel"><header class="meeting-phase-header"><div class="meeting-phase-title-row"><span class="phase-label meeting-phase-number" id="phase-label">PHASE</span><h1 class="meeting-phase-title" id="phase-name">フェーズを選択</h1></div><p class="meeting-phase-purpose" id="phase-goal">—</p></header>
+        <section class="script-panel"><header class="meeting-phase-header"><div class="meeting-phase-title-row"><span class="phase-label meeting-phase-number" id="phase-label">PHASE</span><h1 class="meeting-phase-title" id="phase-name">フェーズを選択</h1><form id="quick-objection-form" class="quick-objection" autocomplete="off"><input id="quick-objection-input" type="text" maxlength="200" placeholder="アウト内容を入力…（例：無料なのが怪しいと言われた）"><button type="submit" class="secondary">相談</button></form></div><p class="meeting-phase-purpose" id="phase-goal">—</p>
+          <div id="quick-objection-popup" class="quick-objection-popup" hidden><header><b>アウト：「<span id="quick-objection-echo"></span>」</b><button type="button" id="quick-objection-close" aria-label="閉じる">×</button></header><p id="quick-objection-notice" class="muted small"></p><div id="quick-objection-candidates"></div><div class="quick-objection-actions"><button type="button" id="quick-objection-more" class="secondary" hidden>別候補</button></div></div>
+        </header>
           <section id="application-guide" class="application-guide" hidden><header><div><span class="eyebrow">APPLICATION GUIDE</span><h2>申込書読み合わせガイド</h2><p>申込書の該当項目を押すと、その場で話す短い説明が表示されます。</p></div><label>申込書の種類<select id="application-variant"></select></label></header><nav id="application-items"></nav><article id="application-item-detail"></article><a id="application-source" target="_blank" rel="noopener noreferrer">申込書原本を確認 ↗</a></section>
           <h3 class="script-section-label">基本スクリプト <span>承認済み</span></h3><div id="base-script" class="script-box document-script">—</div>
           <div id="interview-section" hidden></div>
@@ -101,7 +112,7 @@
     </section>
 
     <section id="view-templates" class="view narrow">
-      <div class="dashboard-head"><div><span class="eyebrow">TALK SCRIPT TEMPLATE</span><h1>トークスクリプトテンプレ</h1><p>現在登録されているトークスクリプトと、商談で使う資料を確認する画面です。内容の編集は管理者のみ行ってください。</p></div><button id="toggle-script-admin" class="secondary">管理メニューを表示</button></div>
+      <div class="dashboard-head compact-head"><div><h1>トークスクリプト</h1></div><div class="dashboard-head-actions"><button type="button" id="new-script-button" class="primary">＋ 新規作成</button><button type="button" id="import-script-button" class="primary">文章から自動作成</button><button id="toggle-script-admin" class="secondary">管理メニューを表示</button></div></div>
       <div class="template-tabs"><button type="button" data-template-tab="scripts" class="active">トークスクリプト</button><button type="button" data-template-tab="materials">商談資料ライブラリ</button></div>
       <div id="template-tab-materials" hidden>
         <div class="material-admin-head"><div><span class="eyebrow">SALES MATERIALS</span><h2>商談資料ライブラリ</h2><p class="lead">商談中に使う資料をここで管理します。URLを変更してもソースコードの修正は不要です。</p></div><button id="open-material-form" class="primary">＋ 資料を追加</button></div>
@@ -112,7 +123,7 @@
       <div id="home-template-list" class="home-template-list"></div>
       <div id="script-admin" hidden>
         <div class="admin-title-row"><div><span class="eyebrow">TALK SCRIPT MANAGEMENT</span><h2>トークスクリプト管理（管理者向け）</h2><p class="lead">この端末にトークスクリプトを追加し、タイトル・公開状態・バージョンを管理します。</p></div><button id="open-create-script" class="primary">＋ トークスクリプトを追加</button></div>
-        <div class="filter-row"><label>事業部<select id="admin-department-filter"><option value="">すべて</option></select></label><label>状態<select id="admin-status-filter"><option value="">すべて</option><option value="published">公開中</option><option value="preparing">準備中</option><option value="unregistered">未登録</option></select></label></div>
+        <div class="filter-row"><label>事業部<select id="admin-department-filter"><option value="">すべて</option></select></label><label>状態<select id="admin-status-filter"><option value="">すべて</option><option value="published">公開中</option><option value="draft">下書き</option><option value="preparing">準備中</option><option value="unregistered">未登録</option><option value="archived">過去版（archived）</option></select></label></div>
         <div id="admin-script-cards" class="script-cards compact"></div>
         <div id="phase-editor" hidden><h2 id="phase-editor-title">トークスクリプト・フェーズ編集</h2><div class="admin-layout"><div id="admin-phase-list" class="admin-list"></div><form id="phase-form" class="panel"><input type="hidden" name="id"><label>フェーズ名<input name="name" disabled></label><label>目的<textarea name="goal" rows="2"></textarea></label><label>基本スクリプト<textarea name="baseScript" rows="8"></textarea></label><label>必須確認項目（1行1項目）<textarea name="requiredQuestions" rows="4"></textarea></label><label>次へ進む条件<textarea name="transitionConditions" rows="2"></textarea></label><label>禁止表現（1行1項目）<textarea name="prohibitedPhrases" rows="4"></textarea></label><div class="actions"><span id="admin-message"></span><button class="primary" type="submit">下書きとして保存</button></div></form></div></div>
       </div>
@@ -159,6 +170,13 @@
   </div><div class="actions"><span id="material-form-message" class="muted small"></span><button type="button" id="close-material-form" class="secondary">キャンセル</button><button type="submit" class="primary">保存</button></div></form></dialog>
   <dialog id="script-flow-dialog" class="materials-dialog"><div class="materials-shell"><header><div><span class="eyebrow">TALK SCRIPT FLOW</span><h2 id="script-flow-title">トークスクリプトを新規作成</h2><small>スクリプト名と商談フロー（フェーズ）をまとめて登録します。</small></div><button type="button" id="close-script-flow" aria-label="閉じる">×</button></header>
     <form id="script-flow-form" class="script-flow-form">
+      <details id="flow-import-details" class="flow-import"><summary>原稿を貼り付けて自動作成</summary>
+        <div class="flow-import-body">
+          <p class="muted small">見出しが【見出し】の形式なら、その単位でフェーズ化します（本文は書き換えません）。見出しが無い自由文でも段落単位でフェーズ化します。</p>
+          <textarea id="flow-import-textarea" rows="12" placeholder="ここにトーク原稿を貼り付けてください"></textarea>
+          <div class="flow-import-actions"><span id="flow-import-message" class="muted small"></span><button type="button" id="flow-import-parse" class="primary">フロー化する</button></div>
+        </div>
+      </details>
       <div class="flow-meta">
         <label>トークスクリプト名<input name="name" required maxlength="100" placeholder="例：新AP商談トーク"></label>
         <label>対象商材<input name="products" required placeholder="例：ホームページ無料制作、エネパル"></label>
@@ -167,7 +185,7 @@
       </div>
       <div class="flow-toolbar"><button type="button" id="flow-add-phase" class="secondary">＋ フェーズを追加</button><button type="button" id="flow-load-default" class="secondary">現在の商談フローを読み込む</button><span id="flow-count" class="muted small"></span></div>
       <div id="flow-phase-list" class="flow-phase-list"></div>
-      <div class="actions"><span id="script-flow-message" class="muted small"></span><button type="button" id="cancel-script-flow" class="secondary">キャンセル</button><button type="submit" class="primary">保存</button></div>
+      <div class="actions"><span id="script-flow-message" class="muted small"></span><button type="button" id="cancel-script-flow" class="secondary">キャンセル</button><button type="submit" id="script-flow-save-draft" class="secondary strong" hidden>保存（下書き）</button><button type="submit" id="script-flow-submit" class="primary">保存</button></div>
     </form>
   </div></dialog>
   <dialog id="note-edit-dialog" class="rename-script-dialog"><form id="note-edit-form" method="dialog"><span class="eyebrow">MEETING NOTE</span><h2>メモを編集</h2><p>変更前の内容は編集履歴として残ります。空にはできません。</p><label>メモ<textarea id="note-edit-input" rows="6" required></textarea></label><div class="actions"><button value="cancel" class="secondary">キャンセル</button><button value="save" class="primary">保存</button></div></form></dialog>

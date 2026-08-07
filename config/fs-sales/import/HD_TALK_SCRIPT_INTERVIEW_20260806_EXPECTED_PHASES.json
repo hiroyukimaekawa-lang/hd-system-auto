@@ -1,0 +1,95 @@
+{
+  "scriptId": "hd-interview-appointment-20260806",
+  "name": "HDトークスクリプト（取材アポ版）",
+  "version": "2026/08/06",
+  "status": "published",
+  "defaultForPreparation": true,
+  "phaseGuide": [
+    {
+      "order": 1,
+      "title": "前提・今日の流れ・決裁者確認",
+      "headings": [
+        "前提",
+        "今日の流れ",
+        "決裁者確認"
+      ]
+    },
+    {
+      "order": 2,
+      "title": "導入・会社紹介",
+      "headings": [
+        "導入・会社紹介"
+      ]
+    },
+    {
+      "order": 3,
+      "title": "なぜホームページ制作なのか",
+      "headings": [
+        "なぜホームページ制作の事業なのか",
+        "ホームページが高い背景理解（顧客育成とマウンティング）"
+      ]
+    },
+    {
+      "order": 4,
+      "title": "信用トーク・当社メリット・質疑応答",
+      "headings": [
+        "信用トーク（ホームページのメリット訴求）",
+        "当社としてもメリット"
+      ]
+    },
+    {
+      "order": 5,
+      "title": "事例の紹介",
+      "headings": [
+        "事例の紹介"
+      ]
+    },
+    {
+      "order": 6,
+      "title": "ホームページのヒアリング",
+      "headings": [
+        "ホームページのヒアリング",
+        "ホームページ作成済みの場合",
+        "ホームページ未作成"
+      ]
+    },
+    {
+      "order": 7,
+      "title": "ホームページの用途",
+      "headings": [
+        "ホームページの用途"
+      ]
+    },
+    {
+      "order": 8,
+      "title": "無料制作の条件提示・電気",
+      "headings": [
+        "問題なければ条件提示へ"
+      ]
+    },
+    {
+      "order": 9,
+      "title": "永年無料の背景",
+      "headings": [
+        "永年無料の背景（不信の払拭）"
+      ]
+    },
+    {
+      "order": 10,
+      "title": "クレカ付帯",
+      "headings": [
+        "クレカ付帯"
+      ]
+    }
+  ],
+  "note": "フェーズ名は初期期待値。RAW本文は勝手に校正せず、人が微修正する。",
+  "resourcesToExtract": [
+    "https://www.growth-path.jp/",
+    "https://www.growth-path.jp/works",
+    "https://enepal.co.jp/",
+    "https://enepal.co.jp/wp/wp-content/uploads/2025/03/farelist_palpower_20250401.pdf",
+    "https://enepal.co.jp/palpower-energy/area-price/kanto/",
+    "https://sankouin.netlify.app/",
+    "https://artcrafter.jp/"
+  ]
+}
