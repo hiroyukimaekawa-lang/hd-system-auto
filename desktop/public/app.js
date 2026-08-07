@@ -6,6 +6,8 @@ const storage={
   get(key){try{return localStorage.getItem(key)||''}catch{return ''}},
   set(key,value){try{if(value)localStorage.setItem(key,value);else localStorage.removeItem(key)}catch{}}
 };
+// スクリプト名・商材名など、テンプレート文字列経由でinnerHTMLへ入れる値は必ずエスケープする
+const escapeHtml=value=>String(value??'').replace(/[&<>"']/g,char=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[char]));
 // 店舗名・オーナー名・メモなど利用者入力はすべてDOM APIで組み立てる（innerHTMLを使わない）
 function el(tag,props={},children=[]){
   const node=document.createElement(tag);
@@ -107,7 +109,8 @@ function renderCatalog(){
 }
 function scriptCard(item,admin=false){
   const department=catalog.departments.find(value=>value.id===item.department_id);
-  return `<article class="script-card"><header><span>${department?.name||item.department_id}</span><em class="status ${item.status}">${statusLabel(item.status)}</em></header><h2>${item.name}</h2><p>${item.products.join('＋')||'商材未登録'}</p><dl><div><dt>対象顧客</dt><dd>${item.customer_type||'—'}</dd></div><div><dt>バージョン</dt><dd>${item.version||'—'}</dd></div><div><dt>最終更新日</dt><dd>${item.updated_at?.slice(0,10)||'—'}</dd></div><div><dt>フェーズ数</dt><dd>${item.phase_count||0}</dd></div><div><dt>使用回数</dt><dd>${item.use_count||0}</dd></div></dl><footer>${admin?`<button class="secondary" data-script-preview="${item.id}">確認</button><button class="secondary" data-script-rename="${item.id}">タイトル編集</button><button class="secondary" data-script-flow="${item.id}">フロー編集</button><button class="primary" data-script-edit="${item.id}" ${item.status==='unregistered'?'disabled':''}>内容編集</button>`:`<button class="secondary" data-script-preview="${item.id}">内容確認</button><button class="primary" data-script-start="${item.id}" ${item.status!=='published'?'disabled':''}>${item.status==='published'?'商談を開始':'利用できません'}</button>`}</footer></article>`;
+  const name=escapeHtml(item.name),products=escapeHtml(item.products.join('＋')||'商材未登録'),customerType=escapeHtml(item.customer_type||'—'),departmentName=escapeHtml(department?.name||item.department_id);
+  return `<article class="script-card"><header><span>${departmentName}</span><em class="status ${item.status}">${statusLabel(item.status)}</em></header><h2>${name}</h2><p>${products}</p><dl><div><dt>対象顧客</dt><dd>${customerType}</dd></div><div><dt>バージョン</dt><dd>${escapeHtml(item.version||'—')}</dd></div><div><dt>最終更新日</dt><dd>${escapeHtml(item.updated_at?.slice(0,10)||'—')}</dd></div><div><dt>フェーズ数</dt><dd>${item.phase_count||0}</dd></div><div><dt>使用回数</dt><dd>${item.use_count||0}</dd></div></dl><footer>${admin?`<button class="secondary" data-script-preview="${item.id}">確認</button><button class="secondary" data-script-rename="${item.id}">タイトル編集</button><button class="secondary" data-script-flow="${item.id}">フロー編集</button><button class="primary" data-script-edit="${item.id}" ${item.status==='unregistered'?'disabled':''}>内容編集</button>`:`<button class="secondary" data-script-preview="${item.id}">内容確認</button><button class="primary" data-script-start="${item.id}" ${item.status!=='published'?'disabled':''}>${item.status==='published'?'商談を開始':'利用できません'}</button>`}</footer></article>`;
 }
 function bindScriptButtons(){
   $$('[data-script-start]').forEach(button=>button.addEventListener('click',()=>selectTalkScript(button.dataset.scriptStart)));
@@ -275,7 +278,7 @@ function renderAdminScripts(){
 function renderHomeTemplates(){
   const published=catalog.scripts.filter(item=>item.department_id==='hd'&&item.status==='published');
   $('#published-script-count').textContent=`${published.length}件`;$('#published-script-summary').textContent=published.map(item=>item.name).join('・');
-  $('#home-template-list').innerHTML=published.map(item=>`<article><div class="template-icon">▤</div><div><span>HD事業部・正式テンプレート</span><h3>${item.name}</h3><p>${item.products.join('＋')}｜${item.customer_type}</p><small>ISアポ基準：HP無料制作の案内として取得</small></div><dl><div><dt>バージョン</dt><dd>${item.version}</dd></div><div><dt>フェーズ</dt><dd>${item.phase_count}</dd></div><div><dt>状態</dt><dd>${statusLabel(item.status)}</dd></div></dl><div class="template-actions"><button class="secondary" data-script-preview="${item.id}">内容を見る</button><button class="primary" data-script-start="${item.id}">このトークで準備</button></div></article>`).join('');
+  $('#home-template-list').innerHTML=published.map(item=>`<article><div class="template-icon">▤</div><div><span>HD事業部・正式テンプレート</span><h3>${escapeHtml(item.name)}</h3><p>${escapeHtml(item.products.join('＋'))}｜${escapeHtml(item.customer_type)}</p><small>ISアポ基準：HP無料制作の案内として取得</small></div><dl><div><dt>バージョン</dt><dd>${escapeHtml(item.version)}</dd></div><div><dt>フェーズ</dt><dd>${item.phase_count}</dd></div><div><dt>状態</dt><dd>${statusLabel(item.status)}</dd></div></dl><div class="template-actions"><button class="secondary" data-script-preview="${item.id}">内容を見る</button><button class="primary" data-script-start="${item.id}">このトークで準備</button></div></article>`).join('');
   bindScriptButtons();
 }
 function renderPreparationScriptSelector(){
@@ -629,7 +632,8 @@ function selectPhase(id){
   $('#phase-transition').textContent=currentPhase.transition_conditions;$('#prohibited').innerHTML=currentPhase.prohibited_phrases.map(item=>`<span>${item}</span>`).join('');$('#warning-box').hidden=!currentPhase.prohibited_phrases.length;
   $('#return-select').value=id;
   $('#hp-role').value=currentSession?.context_data?.hpRole||'';$('#session-notes').value=currentSession?.notes||'';
-  const rolePhase=['hp_interest','lr_09','interview_phase_09'].includes(id);$('#context-fields').hidden=!rolePhase;$('#context-fields').classList.toggle('highlight-role',rolePhase);
+  // 商談実行画面では中央のHPの役割・商談メモは表示しない（右側の商談メモへ統合済み）。データ自体は保持する。
+  $('#context-fields').hidden=true;
   renderApplicationGuide();
   renderInterviewSection(id);
   renderReturnRecommendations();
@@ -972,6 +976,7 @@ async function renderDealHeader(){
 }
 async function enterSalesSession(session){
   currentSession=session;interviewData={};phase10State={};currentSection=null;
+  $('#predicted-objections').innerHTML='<p class="muted small">メモを入力して「AI整理して保存」を押すと、要約・言質・懸念がここに表示されます。</p>';
   await loadScriptPhases(currentSession.talk_script_id);renderPhases();const script=catalog.scripts.find(item=>item.id===currentSession.talk_script_id),department=catalog.departments.find(item=>item.id===currentSession.department_id);$('#session-customer').textContent=currentSession.customer_name||'店舗名未入力';$('#session-meta').textContent=[department?.name,script?.name,currentSession.talk_script_version,currentSession.context_data?.appointmentPattern&&`IS：${currentSession.context_data.appointmentPattern}`,currentSession.staff_id&&`担当 ${currentSession.staff_id}`].filter(Boolean).join(' ・ ');selectPhase(phaseById(currentSession.current_phase)?currentSession.current_phase:config.phases[0]?.id);show('assist');loadSessionRecord();loadTalkObjectionNotes();
   storage.set(ACTIVE_MEETING_KEY,currentSession.id);
   await Promise.all([renderDealHeader(),renderMaterialBar(),FsMeetingNote.open(currentSession.id,currentSession.current_phase)]);
@@ -1042,10 +1047,14 @@ $('#hp-role').addEventListener('input',()=>{if(!currentSession)return;currentSes
 $('#session-notes').addEventListener('input',scheduleProgressSave);
 $('#previous-step').addEventListener('click',()=>{const index=config.phases.findIndex(phase=>phase.id===currentPhase.id);if(index>0)selectPhase(config.phases[index-1].id)});
 $('#return-step').addEventListener('click',()=>selectPhase($('#return-select').value));
-$('#objection-button').addEventListener('click',()=>{$('#assist-panel').classList.add('attention');$('#customer-statement').focus()});
+$('#objection-button').addEventListener('click',()=>{
+  const details=$('#objection-suggest');if(details)details.open=true;
+  $('#assist-panel').classList.add('attention');
+  requestAnimationFrame(()=>{$('#customer-statement').focus();$('#customer-statement').scrollIntoView({behavior:'smooth',block:'center'})});
+});
 $('#next-step').addEventListener('click',()=>{
   const index=config.phases.findIndex(phase=>phase.id===currentPhase.id);if(index<0||index===config.phases.length-1)return toast('最後のステップです。商談結果を保存してください。');
-  if(currentPhase.id==='hp_interest'&&!gateComplete())return openGate();
+  // 確認事項UIは商談実行画面に表示しないため、未入力を理由に次へ進めなくすることはしない
   selectPhase(config.phases[index+1].id);
 });
 function gateRequirements(){
@@ -1073,18 +1082,26 @@ async function loadSessionRecord(){
   $('#live-facts').innerHTML=data.facts.length?data.facts.map(item=>`<article><span>${labels[item.category]||item.category}</span><p>${item.value}</p><small>${new Date(item.created_at).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})}</small></article>`).join(''):'<p class="muted small">記録はまだありません。</p>';
   $('#session-objections').innerHTML=data.objections.length?data.objections.map(item=>`<article><b>${item.customer_statement||'発言未入力'}</b><small>${item.detected_objection}｜${new Date(item.created_at).toLocaleTimeString('ja-JP',{hour:'2-digit',minute:'2-digit'})}</small></article>`).join(''):'<p class="muted small">アウトはまだありません。</p>';
 }
+// AI整理結果には商談メモ原文の引用が含まれうるため、innerHTMLへ入れる前に必ずエスケープする
 function renderPredictedObjections(note){
   const items=note.predicted_objections||[],commitments=note.commitments||[],signals=note.objection_signals||[];
-  $('#predicted-objections').innerHTML=`<section class="reaction-digest"><small>相手の反応</small><b>${note.reaction_summary||'反応を追加確認'}</b>${commitments.length?`<div><small>取れた言質</small>${commitments.map(item=>`<p>✓ ${item}</p>`).join('')}</div>`:''}${signals.length?`<div><small>アウトの兆候</small>${signals.map(item=>`<p>・${item}</p>`).join('')}</div>`:''}</section>${items.length?`<div class="prediction-title"><b>次に来そうなアウト</b><small>${items.length}件を予測</small></div>${items.map(item=>`<article><span>${item.category}</span><b>${item.subcategory}</b><p>${item.responseText}</p><div><small>次に確認</small>${item.nextQuestion}</div></article>`).join('')}`:''}`;
+  $('#predicted-objections').innerHTML=`<section class="reaction-digest"><small>相手の反応</small><b>${escapeHtml(note.reaction_summary||'反応を追加確認')}</b>${commitments.length?`<div><small>取れた言質</small>${commitments.map(item=>`<p>✓ ${escapeHtml(item)}</p>`).join('')}</div>`:''}${signals.length?`<div><small>アウトの兆候</small>${signals.map(item=>`<p>・${escapeHtml(item)}</p>`).join('')}</div>`:''}</section>${items.length?`<div class="prediction-title"><b>次に来そうなアウト</b><small>${items.length}件を予測</small></div>${items.map(item=>`<article><span>${escapeHtml(item.category)}</span><b>${escapeHtml(item.subcategory)}</b><p>${escapeHtml(item.responseText)}</p><div><small>次に確認</small>${escapeHtml(item.nextQuestion)}</div></article>`).join('')}`:''}`;
 }
 async function loadTalkObjectionNotes(){
   if(!currentSession)return;const data=await api(`/api/sales/talk-scripts/${currentSession.talk_script_id}/objection-notes`);
-  $('#talk-objection-notes').innerHTML=data.notes.length?data.notes.map(note=>`<article><small>${new Date(note.created_at).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</small><b>${note.reaction_summary||'反応メモ'}</b><p>${note.memo}</p>${note.commitments?.length?`<div class="saved-commitments">${note.commitments.map(item=>`<em>言質：${item}</em>`).join('')}</div>`:''}<div>${note.predicted_objections.map(item=>`<span>${item.category}</span>`).join('')}</div></article>`).join(''):'<p class="muted small">保存されたメモはまだありません。</p>';
+  $('#talk-objection-notes').innerHTML=data.notes.length?data.notes.map(note=>`<article><small>${new Date(note.created_at).toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})}</small><b>${escapeHtml(note.reaction_summary||'反応メモ')}</b><p>${escapeHtml(note.memo)}</p>${note.commitments?.length?`<div class="saved-commitments">${note.commitments.map(item=>`<em>言質：${escapeHtml(item)}</em>`).join('')}</div>`:''}<div>${note.predicted_objections.map(item=>`<span>${escapeHtml(item.category)}</span>`).join('')}</div></article>`).join(''):'<p class="muted small">保存されたメモはまだありません。</p>';
 }
 $('#save-scratch-analysis').addEventListener('click',async()=>{
   if(!currentSession)return toast('先に商談を開始してください');
-  const memo=$('#scratch-memo').value.trim();if(!memo)return toast('殴り書きメモを入力してください');
-  try{const data=await api(`/api/sales/talk-scripts/${currentSession.talk_script_id}/objection-notes`,{method:'POST',body:JSON.stringify({sessionId:currentSession.id,phaseId:currentPhase?.id,memo,actor:currentSession.staff_id||'FS'})});renderPredictedObjections(data.note);$('#scratch-memo').value='';await loadTalkObjectionNotes();toast('反応・言質・アウト予測を保存しました')}catch(error){toast(error.message)}
+  const button=$('#save-scratch-analysis');button.disabled=true;
+  try{
+    // 別入力欄を持たず、右側「商談メモ」の原文（未送信の下書き含む）をAI整理の入力元にする
+    const data=await FsMeetingNote.commit();
+    const memo=(data?.memos||[]).map(item=>item.content).join('\n').trim();
+    if(!memo)return toast('商談メモを入力してください');
+    const result=await api(`/api/sales/talk-scripts/${currentSession.talk_script_id}/objection-notes`,{method:'POST',body:JSON.stringify({sessionId:currentSession.id,phaseId:currentPhase?.id,memo,actor:currentSession.staff_id||'FS'})});
+    renderPredictedObjections(result.note);await loadTalkObjectionNotes();toast('商談メモをAI整理して保存しました');
+  }catch(error){toast(error.message)}finally{button.disabled=false}
 });
 $('#save-fact').addEventListener('click',async()=>{if(!currentSession)return toast('先に商談を開始してください');try{await api(`/api/sales/sessions/${currentSession.id}/facts`,{method:'POST',body:JSON.stringify({category:$('#fact-category').value,value:$('#fact-value').value})});$('#fact-value').value='';await loadSessionRecord();toast('商談記録へ追加しました')}catch(error){toast(error.message)}});
 async function useSuggestion(index){await api(`/api/sales/suggestions/${currentSuggestion.id}/use`,{method:'POST',body:JSON.stringify({selectedCandidate:index})});$$('[data-use]').forEach((el,i)=>{el.textContent=i===index?'使用済み ✓':'この返答を使用';el.classList.toggle('used',i===index)});await loadSessionRecord();toast('使用した返答を記録しました')}
@@ -1248,7 +1265,7 @@ const messages=$('#messages'),chatForm=$('#chat'),input=$('#input'),send=$('#sen
 function addMessage(role,text,links=[]){const article=document.createElement('article');article.className=`message ${role}`;if(role==='assistant'){const img=document.createElement('img');img.src='/assistant-icon.png';article.append(img)}const bubble=document.createElement('div');bubble.className='bubble';bubble.textContent=text;for(const link of links){bubble.append(document.createElement('br'));const a=document.createElement('a');a.href=link.url;a.target='_blank';a.rel='noreferrer';a.textContent=link.label;bubble.append(a)}article.append(bubble);messages.append(article);messages.scrollTop=messages.scrollHeight;return article}
 async function ask(text){if(!text.trim())return;addMessage('user',text);input.value='';send.disabled=true;const loading=addMessage('assistant','確認しています…');try{const data=await api('/api/chat',{method:'POST',body:JSON.stringify({message:text})});loading.remove();addMessage('assistant',data.text||'応答がありません。',data.links||[])}catch(error){loading.remove();addMessage('assistant',error.message)}finally{send.disabled=false}}
 chatForm.addEventListener('submit',event=>{event.preventDefault();ask(input.value)});document.addEventListener('click',event=>{const prompt=event.target.dataset?.prompt;if(prompt)ask(prompt)});
-FsMeetingNote.mount({input:$('#meeting-memo-input'),list:$('#meeting-memo-list'),status:$('#memo-status'),request:api,phaseLabel:phaseLabelOf});
+FsMeetingNote.mount({input:$('#meeting-memo-input'),list:$('#meeting-memo-list'),status:$('#memo-status'),request:api,phaseLabel:phaseLabelOf,historyDetails:$('#memo-history'),historyCount:$('#memo-history-count'),historyEmpty:$('#memo-history-empty')});
 bindPreinfoAutoHide();
 // 再読み込み後も、終了していない商談は同じ画面とメモの状態で復元する
 async function restoreActiveMeeting(){

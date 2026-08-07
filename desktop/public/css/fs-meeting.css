@@ -8,7 +8,8 @@
 .user-menu>div button{border:0;background:none;text-align:left;padding:10px 12px;border-radius:8px;cursor:pointer;color:var(--ink)}
 .user-menu>div button:hover{background:#eef0e9}
 
-/* サイドバー：FS業務の順番に4項目のみ */
+/* サイドバー：FS業務の順番に4項目のみ。長い項目名でも隣要素と被らない */
+.sidebar button{min-height:52px;white-space:normal;overflow-wrap:anywhere;line-height:1.45}
 .sidebar .sidebar-toggle{margin-top:auto;color:#8fc3b4;font-size:12px}
 body.sidebar-collapsed .sidebar{width:76px;padding:18px 9px}
 body.sidebar-collapsed .sidebar button{justify-content:center;padding:13px;font-size:0}
@@ -125,17 +126,32 @@ body.fs-meeting-active .assist-view.active .assist-grid{grid-template-columns:mi
 .note-column{display:flex;flex-direction:column;border-left:1px solid var(--line);background:#eef0e9}
 .assist-view.active .assist-panel{border-left:0;overflow:visible}
 
-/* 殴り書きメモ：常時表示・独立スクロール */
-.meeting-note{position:sticky;top:0;z-index:2;background:#eef0e9;border-bottom:1px solid var(--line);padding:18px 20px 14px;display:grid;gap:8px}
-.meeting-note-head{display:flex;justify-content:space-between;align-items:flex-end;gap:10px}
-.meeting-note-head h2{margin:2px 0 0;font:700 19px Georgia,"Yu Mincho",serif}
-.memo-status{font-size:11px;color:var(--muted);text-align:right}
-#meeting-memo-input{width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:11px;background:var(--panel);color:var(--ink);resize:vertical;min-height:104px;line-height:1.6}
+/* 商談メモ：殴り書き入力とAI整理を1つのパネルに統合する */
+.meeting-note{background:#eef0e9;border-bottom:1px solid var(--line);padding:14px 16px;display:grid;gap:8px}
+.meeting-note-head{display:flex;justify-content:space-between;align-items:center;gap:10px}
+.meeting-note-head h2{margin:0;font:700 19px Georgia,"Yu Mincho",serif}
+.memo-status{font-size:11px;color:var(--muted);text-align:right;white-space:nowrap}
+#meeting-memo-input{width:100%;padding:12px 13px;border:1px solid var(--line);border-radius:11px;background:var(--panel);color:var(--ink);resize:vertical;min-height:220px;height:clamp(220px,34vh,380px);line-height:1.65;font-size:15px}
 .meeting-note-hint{font-size:11px;color:var(--muted)}
-.meeting-memo-list{display:grid;gap:8px;max-height:34vh;overflow-y:auto}
+#save-scratch-analysis{height:46px;margin-top:2px}
+.ai-result{display:grid;gap:6px;margin-top:2px}
+.ai-result h3{margin:0;font-size:13px;font-weight:700;color:var(--green)}
+.ai-result #predicted-objections{font-size:13.5px;line-height:1.6}
+.collapsible-section{border-top:1px solid var(--line);padding-top:8px;margin-top:2px}
+.collapsible-section summary{cursor:pointer;font-size:12.5px;font-weight:700;color:var(--green);list-style:none}
+.collapsible-section summary::-webkit-details-marker{display:none}
+.collapsible-section summary:before{content:"▸ "}
+.collapsible-section[open]>summary:before{content:"▾ "}
+#memo-history-count{color:var(--muted);font-weight:400;margin-left:2px}
+#memo-history-empty{margin:0}
+.meeting-memo-list{display:grid;gap:8px;max-height:34vh;overflow-y:auto;margin-top:8px}
 .meeting-memo{background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:9px 12px;display:grid;gap:3px}
 .meeting-memo small{font-size:10px;color:var(--muted)}
 .meeting-memo p{margin:0;font-size:13px;white-space:pre-wrap;line-height:1.55}
+/* 右側の補助ツール（アウト返し候補・記録・履歴）は初期折りたたみで縦幅を圧迫しない */
+.assist-view.active .assist-panel{padding:14px 16px 24px;display:grid;gap:2px}
+.assist-panel .manual-objection,.assist-panel .live-record{border-top:0;padding-top:8px;margin-top:0}
+.assist-panel .talk-objection-book,.assist-panel .objection-memory{margin-top:8px;padding-top:8px}
 
 /* 13インチ〜狭い画面：店舗情報を折りたたみ、メモ欄は320pxまで縮小 */
 @media(max-width:1400px){
@@ -266,3 +282,32 @@ body.fs-meeting-active.preinfo-hidden .deal-preinfo{display:none}
 .analysis-text{margin:0;font:inherit;font-size:13px;line-height:1.6;white-space:pre-wrap;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:11px 13px;max-height:34vh;overflow-y:auto}
 .analysis-disclaimer{display:block;margin-top:7px;font-size:11px}
 .analysis-block .note-actions{margin-top:10px}
+
+/* ===== 中央スクリプト領域の簡略化：小さいタイトル・目的、読み上げスクリプトを主役にする ===== */
+.script-panel .meeting-phase-header{padding:10px 0 14px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+.meeting-phase-title-row{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
+.meeting-phase-number{font-size:10px;margin:0}
+.script-panel h1.meeting-phase-title{margin:0;font:700 clamp(20px,2vw,26px)/1.35 Georgia,"Yu Mincho",serif}
+.meeting-phase-purpose{margin:4px 0 0;font-size:12px;line-height:1.5;color:var(--muted)}
+.script-panel h3.script-section-label{font-size:12px;font-weight:700;margin:0 0 10px;display:flex;align-items:center;gap:8px}
+.script-panel h3.script-section-label span{font:600 10px sans-serif;background:#dbeee5;color:#246957;padding:4px 7px;border-radius:20px}
+/* 確認事項・次へ進む条件・使用禁止表現・戻る場所は商談実行画面では非表示（データは保持しテンプレ管理画面に残す） */
+#meeting-secondary-info,#context-fields,.return-select-label,#return-step{display:none}
+.navigation-box{border-top:1px solid var(--line);margin-top:20px;padding-top:16px}
+.step-actions{display:flex;gap:8px;flex-wrap:nowrap}
+.step-actions button{min-width:0}
+.step-actions #objection-button{flex:0 0 auto}
+.step-actions #next-step{flex:1 1 auto;margin-left:auto}
+.step-actions #previous-step{flex:0 1 auto}
+@media(max-width:420px){.step-actions button{font-size:12.5px;padding:9px 8px}}
+
+/* ===== トークスクリプトテンプレ一覧：文字・ボタン被り解消 ===== */
+.script-cards{grid-template-columns:repeat(auto-fit,minmax(320px,1fr))}
+.script-card footer{flex-wrap:wrap}
+.script-card footer button{min-width:0;white-space:normal;flex:1 1 auto}
+
+/* ===== 商談終了モーダル：見切れ・文字被り修正 ===== */
+.finish-dialog{width:min(900px,calc(100vw - 32px));max-width:none;max-height:92vh}
+.finish-dialog #finish-form{max-height:92vh;overflow-y:auto}
+.finish-notes textarea,.finish-analysis textarea{overflow-wrap:anywhere}
+.note-body,.note-before,.analysis-text{overflow-wrap:anywhere}

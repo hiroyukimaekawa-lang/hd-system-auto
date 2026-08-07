@@ -67,23 +67,34 @@
       <section id="material-bar" class="material-bar"></section>
       <div class="assist-grid">
         <aside class="phase-rail"><span class="eyebrow">SALES FLOW</span><h2>商談フロー</h2><div id="phase-list"></div></aside>
-        <section class="script-panel"><div class="phase-label" id="phase-label">PHASE</div><h1 id="phase-name">フェーズを選択</h1><div class="goal"><small>このフェーズの目的</small><p id="phase-goal">—</p></div>
+        <section class="script-panel"><header class="meeting-phase-header"><div class="meeting-phase-title-row"><span class="phase-label meeting-phase-number" id="phase-label">PHASE</span><h1 class="meeting-phase-title" id="phase-name">フェーズを選択</h1></div><p class="meeting-phase-purpose" id="phase-goal">—</p></header>
           <section id="application-guide" class="application-guide" hidden><header><div><span class="eyebrow">APPLICATION GUIDE</span><h2>申込書読み合わせガイド</h2><p>申込書の該当項目を押すと、その場で話す短い説明が表示されます。</p></div><label>申込書の種類<select id="application-variant"></select></label></header><nav id="application-items"></nav><article id="application-item-detail"></article><a id="application-source" target="_blank" rel="noopener noreferrer">申込書原本を確認 ↗</a></section>
-          <h3>基本スクリプト <span>承認済み</span></h3><div id="base-script" class="script-box document-script">—</div>
+          <h3 class="script-section-label">基本スクリプト <span>承認済み</span></h3><div id="base-script" class="script-box document-script">—</div>
           <div id="interview-section" hidden></div>
-          <div id="context-fields" class="context-fields"><label>HPの役割<input id="hp-role" placeholder="例：Instagramを見たお客様が迷わず予約できる公式情報"></label><label>商談メモ<textarea id="session-notes" rows="3" placeholder="ヒアリング回答や重要事項を記録"></textarea></label></div>
-          <h3>確認事項</h3><ul id="phase-questions" class="check-list interactive"></ul><div class="transition"><small>次へ進む条件</small><p id="phase-transition">—</p></div><div id="warning-box" class="warning"><b>使用禁止表現</b><div id="prohibited"></div></div>
-          <div id="recommended-returns" class="return-recommendations"></div>
-          <div class="navigation-box"><label>戻る場所を選択<select id="return-select"></select></label><div class="step-actions"><button id="previous-step" class="secondary">← 前のステップ</button><button id="return-step" class="secondary">選択した場所へ戻る</button><button id="objection-button" class="danger">アウトが来た</button><button id="next-step" class="primary">次へ進む →</button></div></div>
+          <div id="context-fields" class="context-fields" hidden><label>HPの役割<input id="hp-role" placeholder="例：Instagramを見たお客様が迷わず予約できる公式情報"></label><label>商談メモ<textarea id="session-notes" rows="3" placeholder="ヒアリング回答や重要事項を記録"></textarea></label></div>
+          <div id="meeting-secondary-info" hidden><h3>確認事項</h3><ul id="phase-questions" class="check-list interactive"></ul><div class="transition"><small>次へ進む条件</small><p id="phase-transition">—</p></div><div id="warning-box" class="warning"><b>使用禁止表現</b><div id="prohibited"></div></div>
+          <div id="recommended-returns" class="return-recommendations"></div></div>
+          <div class="navigation-box"><label class="return-select-label" hidden>戻る場所を選択<select id="return-select"></select></label><div class="step-actions"><button id="previous-step" class="secondary">← 前へ</button><button id="objection-button" class="danger">アウト返し</button><button id="return-step" class="secondary" hidden>選択した場所へ戻る</button><button id="next-step" class="primary">次へ →</button></div></div>
         </section>
         <aside class="note-column">
           <section class="meeting-note">
-            <div class="meeting-note-head"><div><span class="eyebrow">MEETING MEMO</span><h2>殴り書きメモ</h2></div><small id="memo-status" class="memo-status">自動保存されます</small></div>
-            <textarea id="meeting-memo-input" rows="5" placeholder="相手の発言、反応、懸念、言質などを殴り書きしてください"></textarea>
-            <div class="meeting-note-hint">Enter：メモ追加／Shift + Enter：改行</div>
-            <div id="meeting-memo-list" class="meeting-memo-list"></div>
+            <div class="meeting-note-head"><h2>商談メモ</h2><small id="memo-status" class="memo-status">自動保存されます</small></div>
+            <textarea id="meeting-memo-input" rows="5" placeholder="相手の発言・反応・懸念・言質などをそのまま入力"></textarea>
+            <div class="meeting-note-hint">Enter：追加／Shift + Enter：改行</div>
+            <button type="button" id="save-scratch-analysis" class="primary full">AI整理して保存</button>
+            <section class="ai-result">
+              <h3>AI整理結果</h3>
+              <div id="predicted-objections"><p class="muted small">メモを入力して「AI整理して保存」を押すと、要約・言質・懸念がここに表示されます。</p></div>
+            </section>
+            <p id="memo-history-empty" class="muted small" hidden>まだメモはありません</p>
+            <details id="memo-history" class="collapsible-section" hidden><summary>過去メモ<span id="memo-history-count"></span></summary><div id="meeting-memo-list" class="meeting-memo-list"></div></details>
           </section>
-          <aside id="assist-panel" class="assist-panel"><section class="scratch-assist"><span class="eyebrow">REACTION ANALYSIS</span><h2>反応・言質のAI整理</h2><p>質問したときの反応、相手が実際に言ったこと、迷っている条件をそのまま入力してください。</p><textarea id="scratch-memo" rows="6" placeholder="例：無料なのはかなり疑っている。「HP自体は作りたい」と発言。電気は今の会社から変えたくなさそう。奥様への確認が必要。"></textarea><button id="save-scratch-analysis" class="primary full">反応と言質を整理して保存</button><div id="predicted-objections"></div><details class="talk-objection-book"><summary>このトークの反応・アウト返し集</summary><div id="talk-objection-notes"></div></details></section><section class="manual-objection"><span class="eyebrow">SALES ASSIST</span><h2>アウト返し</h2><label>アウト分類<select id="objection-select"></select></label><label>相手の発言<textarea id="customer-statement" rows="4" placeholder="相手の言葉をそのまま入力"></textarea></label><button id="suggest-button" class="secondary strong full">返答候補を表示</button><div id="suggest-status" class="muted small"></div><div id="suggestions"></div></section><section class="live-record"><div><span class="eyebrow">LIVE RECORD</span><h2>商談中の記録</h2><p>相手から確認できた事実や言質を、その場で保存します。</p></div><label>記録の種類<select id="fact-category"><option value="commitment">相手の言質・合意</option><option value="proposed_products">提案商材</option><option value="acquired_products">獲得商材</option><option value="electricity">電気情報</option><option value="referral">紹介案件</option><option value="progress">進捗</option><option value="next_action">次回アクション</option><option value="log">商談ログ</option><option value="hp_purpose">HPの作成目的</option><option value="hp_details">HPの具体的内容</option><option value="decision_maker">決裁者情報</option></select></label><label>確認できた内容<textarea id="fact-value" rows="3" placeholder="相手の発言をできるだけそのまま記録"></textarea></label><button id="save-fact" class="secondary strong full">記録を追加</button><div id="live-facts" class="live-facts"></div></section><details class="objection-memory"><summary>この商談で発生したアウト</summary><div id="session-objections"></div></details></aside>
+          <aside id="assist-panel" class="assist-panel">
+            <details class="collapsible-section" id="objection-suggest"><summary>アウト返し候補</summary><section class="manual-objection"><label>アウト分類<select id="objection-select"></select></label><label>相手の発言<textarea id="customer-statement" rows="4" placeholder="相手の言葉をそのまま入力"></textarea></label><button id="suggest-button" type="button" class="secondary strong full">返答候補を表示</button><div id="suggest-status" class="muted small"></div><div id="suggestions"></div></section></details>
+            <details class="collapsible-section"><summary>商談中の記録（進捗メモ）</summary><section class="live-record"><label>記録の種類<select id="fact-category"><option value="commitment">相手の言質・合意</option><option value="proposed_products">提案商材</option><option value="acquired_products">獲得商材</option><option value="electricity">電気情報</option><option value="referral">紹介案件</option><option value="progress">進捗</option><option value="next_action">次回アクション</option><option value="log">商談ログ</option><option value="hp_purpose">HPの作成目的</option><option value="hp_details">HPの具体的内容</option><option value="decision_maker">決裁者情報</option></select></label><label>確認できた内容<textarea id="fact-value" rows="3" placeholder="相手の発言をできるだけそのまま記録"></textarea></label><button id="save-fact" type="button" class="secondary strong full">記録を追加</button><div id="live-facts" class="live-facts"></div></section></details>
+            <details class="talk-objection-book"><summary>このトークの反応・アウト返し集</summary><div id="talk-objection-notes"></div></details>
+            <details class="objection-memory"><summary>この商談で発生したアウト</summary><div id="session-objections"></div></details>
+          </aside>
         </aside>
       </div>
       <div id="meeting-action-bar" class="meeting-action-bar"><button id="pause-button" class="secondary">中断</button><button id="notes-button" class="secondary">結果</button><button id="finish-button" class="danger">商談終了</button></div>
