@@ -1,55 +1,55 @@
-# HD AIアシスタント｜FS フェーズ一覧・アウト返し重なり修正
+# HD IS リスト生成 スクレイピング自動化 PoC
 
-## 1. リポジトリへ配置
-
-このZIPをDownloadsへ保存した後、以下を実行してください。
+## 1. ZIPをリポジトリへ展開
 
 ```bash
 cd "/Users/maekawahiroyuki/hd-system-auto"
 
 unzip -o \
-  "$HOME/Downloads/HD_AIアシスタント_FS_フェーズ全件表示_アウト返し重なり修正_ClaudeCodeパッケージ.zip"
+  "$HOME/Downloads/HD_AIアシスタント_IS_リスト生成_スクレイピング自動化_PoC_ClaudeCodeパッケージ.zip"
 ```
 
-配置後:
+## 2. ファイル存在確認
 
-```text
-/Users/maekawahiroyuki/hd-system-auto/
-└── docs/
-    └── implementation-prompts/
-        └── CLAUDE_CODE_FS_PHASE_RAIL_AND_OBJECTION_OVERLAP_FIX.md
+```bash
+ls -la "docs/implementation-prompts/CLAUDE_CODE_HD_IS_LIST_GENERATION_SCRAPING_POC.md"
+ls -la "docs/requirements/is-list-generation/HD_IS_LIST_GENERATION_SCRAPING_POC_REQUIREMENTS.md"
+ls -la "config/is/list-generation/scraping-automation.local.example.json"
 ```
 
-## 2. Claude Codeを起動
+3つとも表示されたらOK。
+
+## 3. Claude Code
 
 ```bash
 cd "/Users/maekawahiroyuki/hd-system-auto"
 claude
 ```
 
-## 3. Claude Codeへ入力
+## 4. 貼り付け
 
 ```text
-docs/implementation-prompts/CLAUDE_CODE_FS_PHASE_RAIL_AND_OBJECTION_OVERLAP_FIX.md
-を最初から最後まで読み、記載内容をすべて実装してください。
+docs/implementation-prompts/CLAUDE_CODE_HD_IS_LIST_GENERATION_SCRAPING_POC.md
+を最初から最後まで読み、
+関連requirementsとconfig exampleもすべて読み、
+記載内容を実装してください。
 
-今回の最重要は以下の2点です。
+今回の機能はFSではなく、
+HD AIアシスタント > IS > リスト生成 > 自動取得
+として実装してください。
 
-1. FS商談画面左側のフェーズ一覧は、標準の8〜10フェーズでは内部スクロールを禁止し、1280x800でも全フェーズが1画面内に常時見えるようにしてください。
+UI・API・コード・保存先・設定名をIS側に統一し、
+FS機能へ混在させないでください。
 
-2. タイトル横のアウト相談から表示される候補カードは、読み上げスクリプトや右側メモへ重ねず、中央カラムの通常document flow内に展開し、その高さ分だけ本文を下へ押し下げてください。
+今回は1エリア×1ジャンルのPoCです。
+Google Mapsと食べログを既存処理で自動取得し、
+統合・重複排除・チェーン/対象外除外・電話番号補完を行い、
+現在のComdesk形式CSVを対象市区町村のGoogle Driveへ保存するところまで実装してください。
 
-空文字や「」だけではアウト候補を表示しないでください。
+PoCではComdesk本番投入は絶対に実行しないでください。
 
-既存のトーク本文、DB、商談メモ、AI整理、アウト返し内容、Obsidian同期は変更しないでください。
-
-既存未コミット変更を保持してください。
-git reset / restore / clean / stash は使用しないでください。
-
-今回はcommit・pushしないでください。
-
-途中確認は不要です。
-実装後にnpm testと利用可能な品質チェックを実行し、
-1280x800 / 1440x900でUI確認まで行って、
-変更ファイル・テスト結果・UI確認結果・残課題を報告してください。
+既存未コミット変更とDrive既存ファイルを保持し、
+git reset / restore / clean / stash は使用せず、
+commit・pushせず、
+現行コード調査・実装・テスト・安全な小規模PoC確認まで進めてください。
 ```

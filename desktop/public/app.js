@@ -1,5 +1,5 @@
 const $=selector=>document.querySelector(selector), $$=selector=>[...document.querySelectorAll(selector)];
-let config={phases:[],objections:[]}, catalog={departments:[],scripts:[],applicationGuide:null}, selectedDepartment='hd', selectedScript='hd-new-ap-20260725', currentSession=null, currentPhase=null, currentSuggestion=null, activePreparation=null, activeDeal=null, editingDealId=null, deals=[], renamingScriptId=null, saveTimer=null, applicationItem=1;
+let config={phases:[],objections:[]}, catalog={departments:[],scripts:[],applicationGuide:null}, progressConfig={progressAxes:[]}, selectedDepartment='hd', selectedScript='hd-new-ap-20260725', currentSession=null, currentPhase=null, currentSuggestion=null, activePreparation=null, activeDeal=null, editingDealId=null, deals=[], resultsCache=[], renamingScriptId=null, saveTimer=null, applicationItem=1;
 let currentSection=null, interviewData={}, phase10State={}, interviewSaveTimer=null;
 let quickObjectionSuggestion=null, quickObjectionOffset=0, quickObjectionBusy=false, quickObjectionComposing=false;
 let scriptSelectionTouched=false;
@@ -367,6 +367,55 @@ const dealDate=(value,fallback='—')=>{
   return Number.isNaN(date.getTime())?raw:date.toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'});
 };
 const dealField=(label,value)=>el('div',{class:'deal-field'},[el('small',{text:label}),el('b',{text:String(value||'—').trim()||'—'})]);
+// ===== 2軸進捗（申込・審査進捗／案件進捗）。同じA/Bコードでも軸が違えば別物なので、必ずコード＋名称で表示する =====
+const PROGRESS_AXIS_LABEL={deal_stage:'案件進捗',application_progress:'申込進捗'};
+const progressAxis=id=>(progressConfig.progressAxes||[]).find(axis=>axis.id===id);
+const progressOptionLabel=status=>`${status.code}｜${status.label}`;
+function fillProgressSelect(select,axisId,selected){
+  if(!select)return;
+  const axis=progressAxis(axisId);
+  select.innerHTML='<option value="">未設定</option>'+(axis?.statuses||[]).map(status=>`<option value="${status.code}">${escapeHtml(progressOptionLabel(status))}</option>`).join('');
+  select.value=selected||'';
+}
+function fillProgressFilterSelect(select,axisId){
+  if(!select)return;
+  const axis=progressAxis(axisId);
+  select.innerHTML='<option value="">すべて</option>'+(axis?.statuses||[]).map(status=>`<option value="${status.code}">${escapeHtml(progressOptionLabel(status))}</option>`).join('');
+}
+function progressFieldText(code,axisId){
+  if(!code)return '未設定';
+  const status=progressAxis(axisId)?.statuses.find(item=>item.code===code);
+  return status?progressOptionLabel(status):code;
+}
+// 申込A/B/CだけnextActionHintがある。あくまで補助表示で、次回アクションを自動で書き換えることはしない。
+function updateProgressHint(hintEl,code){
+  if(!hintEl)return;
+  const status=progressAxis('application_progress')?.statuses.find(item=>item.code===code);
+  hintEl.textContent=status?.nextActionHint?`次回アクションのヒント：${status.nextActionHint}`:'';
+}
+async function renderProgressHistory(container,dealId){
+  if(!container)return;
+  container.textContent='';
+  if(!dealId)return;
+  try{
+    const data=await api(`/api/fs/deals/${encodeURIComponent(dealId)}/progress-history`);
+    const history=data.history||[];
+    if(!history.length){container.append(el('p',{class:'muted small',text:'変更履歴はまだありません。'}));return}
+    for(const item of history)container.append(el('p',{class:'progress-history-item',text:`${dealDate(item.changed_at)} ${PROGRESS_AXIS_LABEL[item.axis]||item.axis} ${item.from_status||'未設定'} → ${item.to_status}${item.reason?`（${item.reason}）`:''}`}));
+  }catch(error){container.append(el('p',{class:'muted small',text:error.message}))}
+}
+// 変更があった軸だけPUTする（未変更・未選択の軸は送らない＝勝手な自動変更や巻き戻しをしない）
+async function saveDealProgressChanges(dealId,next,current,reason,source){
+  const calls=[];
+  for(const [key,axis] of [['dealStageCode','deal_stage'],['applicationProgressCode','application_progress']]){
+    const code=next[key];
+    if(!code||code===(current[key]||''))continue;
+    calls.push(api(`/api/fs/deals/${encodeURIComponent(dealId)}/progress`,{method:'PUT',body:JSON.stringify({axis,code,reason:reason||undefined,source,actor:current.staffId||'FS'})}));
+  }
+  if(!calls.length)return false;
+  await Promise.all(calls);
+  return true;
+}
 function dealActions(deal){
   const buttons=[];
   const add=(label,className,handler)=>{const button=el('button',{class:className,type:'button',text:label});button.addEventListener('click',handler);buttons.push(button)};
@@ -408,6 +457,8 @@ function dealCard(deal){
     el('p',{text:[deal.ownerName&&`${deal.ownerName}様`,deal.products].filter(Boolean).join('｜')||'オーナー名未入力'})
   ]);
   const fields=el('div',{class:'deal-fields'},[
+    dealField('案件進捗',progressFieldText(deal.dealStageCode,'deal_stage')),
+    dealField('申込・審査進捗',progressFieldText(deal.applicationProgressCode,'application_progress')),
     dealField('商談日時',dealDate(deal.meetingAt,'日程未定')),
     dealField('商談担当者',deal.staffId),
     dealField('IS担当者',deal.isPerson),
@@ -419,7 +470,8 @@ function dealCard(deal){
 }
 function renderDeals(){
   const status=$('#deal-status-filter').value,keyword=$('#deal-search').value.trim();
-  const items=deals.filter(deal=>(!status||deal.status===status)&&(!keyword||`${deal.storeName}${deal.ownerName}`.includes(keyword)));
+  const stageFilter=$('#deal-stage-filter')?.value||'',applicationFilter=$('#deal-application-filter')?.value||'';
+  const items=deals.filter(deal=>(!status||deal.status===status)&&(!keyword||`${deal.storeName}${deal.ownerName}`.includes(keyword))&&(!stageFilter||deal.dealStageCode===stageFilter)&&(!applicationFilter||deal.applicationProgressCode===applicationFilter));
   const list=$('#deal-list');list.textContent='';
   $('#active-deal-count').textContent=`${deals.length}件`;
   if(!items.length){list.append(el('div',{class:'empty-state'},[el('b',{text:'該当する案件はありません'}),el('p',{text:'「＋ 商談準備を作成」からISの引き継ぎを登録すると、ここに案件が追加されます。'})]));return}
@@ -432,6 +484,8 @@ function resultCard(deal){
     el('p',{text:[deal.ownerName&&`${deal.ownerName}様`,deal.staffId&&`担当 ${deal.staffId}`].filter(Boolean).join('｜')||'—'})
   ]);
   const fields=el('div',{class:'deal-fields'},[
+    dealField('案件進捗',progressFieldText(deal.dealStageCode,'deal_stage')),
+    dealField('申込・審査進捗',progressFieldText(deal.applicationProgressCode,'application_progress')),
     dealField('商談日',dealDate(deal.finishedAt||deal.startedAt,'—')),
     dealField('商談結果',deal.result),
     dealField('ヨミ',deal.forecast),
@@ -446,10 +500,16 @@ function resultCard(deal){
   return el('article',{class:'deal-card'},[head,fields,el('div',{class:'deal-actions-row'},[open,remove])]);
 }
 async function renderResults(){
+  resultsCache=(await api('/api/fs/deals?scope=finished')).deals;
+  applyResultsFilter();
+}
+function applyResultsFilter(){
   const list=$('#result-list');list.textContent='';
-  const finished=(await api('/api/fs/deals?scope=finished')).deals;
-  if(!finished.length){list.append(el('div',{class:'empty-state'},[el('b',{text:'終了した商談はまだありません'}),el('p',{text:'商談を終了すると、結果・メモ・振り返りがここに残ります。'})]));return}
-  for(const deal of finished)list.append(resultCard(deal));
+  const stageFilter=$('#result-stage-filter')?.value||'',applicationFilter=$('#result-application-filter')?.value||'';
+  const items=resultsCache.filter(deal=>(!stageFilter||deal.dealStageCode===stageFilter)&&(!applicationFilter||deal.applicationProgressCode===applicationFilter));
+  if(!resultsCache.length){list.append(el('div',{class:'empty-state'},[el('b',{text:'終了した商談はまだありません'}),el('p',{text:'商談を終了すると、結果・メモ・振り返りがここに残ります。'})]));return}
+  if(!items.length){list.append(el('div',{class:'empty-state'},[el('b',{text:'該当する案件はありません'}),el('p',{text:'進捗の絞り込み条件を変更してください。'})]));return}
+  for(const deal of items)list.append(resultCard(deal));
 }
 function preparationFocus(item){
   const text=[item.context_data.issues,item.context_data.hookPoints,item.handoff,item.context_data.appointmentPattern].join(' ');
@@ -479,6 +539,7 @@ async function showDealDetail(dealId){
   $('#prep-detail-temperature').textContent=context.temperature||'未確認';$('#prep-detail-temperature-reason').textContent=context.temperatureReason||'温度感の根拠は未入力です。';$('#prep-detail-issues').textContent=context.issues||activePreparation.concerns||'課題は未入力です。';$('#prep-detail-hooks').textContent=context.hookPoints||'刺しポイントは未入力です。商談中のヒアリングで確認してください。';$('#prep-detail-handoff').textContent=activePreparation.handoff||'ISからの引き継ぎはありません。';
   $('#prep-focus-phases').innerHTML=focus.map(({id,reason})=>{const phase=phaseById(id);return `<button data-prep-focus="${id}"><span>${phase?.name||id}</span><b>${reason}</b><small>スクリプトを確認 →</small></button>`}).join('');
   $$('[data-prep-focus]').forEach(button=>button.addEventListener('click',()=>{$('#preparation-dialog').close();openScriptPreview(activePreparation.talk_script_id,button.dataset.prepFocus)}));
+  renderPrepProgressEditor(detail.deal);
   $('#preparation-dialog').showModal();
 }
 async function openDeal(deal){
@@ -628,6 +689,46 @@ $('#analysis-edit-form').addEventListener('submit',async event=>{
   const target=analysisEditorTarget;analysisEditorTarget=null;
   try{await api(`/api/fs/meetings/${encodeURIComponent(target.meetingId)}/analysis/${encodeURIComponent(target.analysisId)}`,{method:'PATCH',body:JSON.stringify({text:$('#analysis-edit-input').value,actor:'FS'})});toast('解析結果を保存しました（担当者修正済み）');target.onSaved?.()}catch(error){toast(error.message)}
 });
+// 結果と振り返り画面からも2軸進捗を変更できるようにする（各種案件用と同じ保存API）
+function buildResultProgressSection(deal){
+  const section=el('section',{class:'result-block progress-editor'},[el('h3',{text:'進捗'})]);
+  const dealStageSelect=el('select',{id:'result-deal-stage'});
+  const applicationSelect=el('select',{id:'result-application-progress'});
+  const reason=el('input',{placeholder:'変更理由（任意）'});
+  const save=el('button',{type:'button',class:'secondary strong',text:'進捗を保存'});
+  const hint=el('p',{class:'muted small'});
+  const historyBox=el('div',{class:'progress-history'});
+  fillProgressSelect(dealStageSelect,'deal_stage',deal.dealStageCode);
+  fillProgressSelect(applicationSelect,'application_progress',deal.applicationProgressCode);
+  updateProgressHint(hint,deal.applicationProgressCode);
+  applicationSelect.addEventListener('change',()=>updateProgressHint(hint,applicationSelect.value));
+  save.addEventListener('click',async()=>{
+    try{
+      const changed=await saveDealProgressChanges(deal.dealId,{dealStageCode:dealStageSelect.value,applicationProgressCode:applicationSelect.value},deal,reason.value.trim(),'manual');
+      if(!changed)return toast('変更はありません');
+      const detail=await api(`/api/fs/deals/${encodeURIComponent(deal.dealId)}`);
+      deal.dealStageCode=detail.deal.dealStageCode;deal.applicationProgressCode=detail.deal.applicationProgressCode;
+      fillProgressSelect(dealStageSelect,'deal_stage',deal.dealStageCode);
+      fillProgressSelect(applicationSelect,'application_progress',deal.applicationProgressCode);
+      updateProgressHint(hint,deal.applicationProgressCode);
+      reason.value='';
+      await renderProgressHistory(historyBox,deal.dealId);
+      toast('進捗を保存しました');
+    }catch(error){toast(error.message)}
+  });
+  section.append(
+    el('div',{class:'progress-grid'},[
+      el('label',{},[document.createTextNode('案件進捗'),dealStageSelect]),
+      el('label',{},[document.createTextNode('申込・審査進捗'),applicationSelect]),
+      el('label',{},[document.createTextNode('変更理由（任意）'),reason]),
+      save
+    ]),
+    hint,
+    historyBox
+  );
+  renderProgressHistory(historyBox,deal.dealId);
+  return section;
+}
 async function showResultDetail(dealId){
   let detail;
   try{detail=await api(`/api/fs/deals/${encodeURIComponent(dealId)}`)}catch(error){return toast(error.message)}
@@ -642,6 +743,7 @@ async function showResultDetail(dealId){
   const analysisBlock=await buildResultAnalysisSection(meetingId,dealId);
   const productBlock=await buildResultProductSection(meetingId,dealId);
   body.append(...[
+    buildResultProgressSection(deal),
     resultSection('ISからの引き継ぎ',deal.handoff),
     productBlock,
     deal.result?resultSection('商談結果（旧データ・参考）',deal.result):null,
@@ -669,6 +771,26 @@ $('#prep-open-session').addEventListener('click',()=>{if(activeDeal){$('#prepara
 $('#prep-edit-info').addEventListener('click',()=>{if(activeDeal)editDeal(activeDeal.dealId)});
 $('#prep-view-script').addEventListener('click',()=>{if(activePreparation){$('#preparation-dialog').close();openScriptPreview(activePreparation.talk_script_id)}});
 $('#save-next-action').addEventListener('click',async()=>{if(!activePreparation?.id)return toast('この案件は次の動きを保存できません');try{const data=await api(`/api/sales/preparations/${activePreparation.id}`,{method:'PUT',body:JSON.stringify({nextAction:$('#prep-next-action').value,nextActionAt:$('#prep-next-action-at').value,actor:activePreparation.staff_id||'FS'})});activePreparation=data.preparation;toast('次の動きを保存しました');await loadDeals();$('#preparation-dialog').close()}catch(error){toast(error.message)}});
+function renderPrepProgressEditor(deal){
+  fillProgressSelect($('#prep-deal-stage'),'deal_stage',deal.dealStageCode);
+  fillProgressSelect($('#prep-application-progress'),'application_progress',deal.applicationProgressCode);
+  updateProgressHint($('#prep-progress-hint'),deal.applicationProgressCode);
+  $('#prep-progress-reason').value='';
+  renderProgressHistory($('#prep-progress-history'),deal.dealId);
+}
+$('#prep-application-progress').addEventListener('change',()=>updateProgressHint($('#prep-progress-hint'),$('#prep-application-progress').value));
+$('#save-prep-progress').addEventListener('click',async()=>{
+  if(!activeDeal?.dealId)return toast('この案件は進捗を保存できません');
+  try{
+    const changed=await saveDealProgressChanges(activeDeal.dealId,{dealStageCode:$('#prep-deal-stage').value,applicationProgressCode:$('#prep-application-progress').value},activeDeal,$('#prep-progress-reason').value.trim(),'manual');
+    if(!changed)return toast('変更はありません');
+    const detail=await api(`/api/fs/deals/${encodeURIComponent(activeDeal.dealId)}`);
+    activeDeal=detail.deal;
+    renderPrepProgressEditor(activeDeal);
+    toast('進捗を保存しました');
+    await loadDeals();
+  }catch(error){toast(error.message)}
+});
 function renderPhases(){
   const groups=[...new Set(config.phases.map(phase=>phase.group_name))];
   let railRowCount=0;
@@ -757,7 +879,9 @@ async function loadDeals(){
   return deals;
 }
 async function load(){
-  [config,catalog]=await Promise.all([api('/api/sales/config'),api('/api/sales/catalog')]);renderPhases();renderCatalog();
+  [config,catalog,progressConfig]=await Promise.all([api('/api/sales/config'),api('/api/sales/catalog'),api('/api/fs/progress-config')]);renderPhases();renderCatalog();
+  fillProgressFilterSelect($('#deal-stage-filter'),'deal_stage');fillProgressFilterSelect($('#deal-application-filter'),'application_progress');
+  fillProgressFilterSelect($('#result-stage-filter'),'deal_stage');fillProgressFilterSelect($('#result-application-filter'),'application_progress');
   renderHomeTemplates();renderPreparationScriptSelector();
   $('#objection-select').innerHTML=config.objections.map(item=>`<option value="${item.id}">${item.category} ＞ ${item.subcategory}</option>`).join('');
   selectPhase('agenda');editPhase('agenda');
@@ -767,6 +891,10 @@ async function load(){
 }
 $('#deal-status-filter').addEventListener('change',renderDeals);
 $('#deal-search').addEventListener('input',renderDeals);
+$('#deal-stage-filter').addEventListener('change',renderDeals);
+$('#deal-application-filter').addEventListener('change',renderDeals);
+$('#result-stage-filter').addEventListener('change',applyResultsFilter);
+$('#result-application-filter').addEventListener('change',applyResultsFilter);
 $('#toggle-script-admin').addEventListener('click',()=>{const panel=$('#script-admin');panel.hidden=!panel.hidden;$('#toggle-script-admin').textContent=panel.hidden?'管理メニューを表示':'管理メニューを隠す'});
 $$('[data-template-tab]').forEach(button=>button.addEventListener('click',()=>{
   const tab=button.dataset.templateTab;
@@ -1332,7 +1460,12 @@ async function openFinishDialog(){
     renderNoteList($('#finish-note-list'),data.notes||[]);
   }catch{renderProductChecks($('#finish-products'),[]);renderNoteList($('#finish-note-list'),[])}
   await loadFinishAnalysis();
+  fillProgressSelect($('#finish-deal-stage'),'deal_stage',activeDeal?.dealStageCode||'');
+  fillProgressSelect($('#finish-application-progress'),'application_progress',activeDeal?.applicationProgressCode||'');
+  updateProgressHint($('#finish-progress-hint'),activeDeal?.applicationProgressCode||'');
+  $('#finish-progress-reason').value='';
 }
+$('#finish-application-progress').addEventListener('change',()=>updateProgressHint($('#finish-progress-hint'),$('#finish-application-progress').value));
 $('#finish-run-analysis').addEventListener('click',async()=>{
   if(!currentSession)return;
   const button=$('#finish-run-analysis');button.disabled=true;
@@ -1361,9 +1494,15 @@ $('#finish-form').addEventListener('submit',async event=>{
   body.products=selectedFinishProducts();
   body.actor=currentSession.staff_id||'FS';
   const meetingId=currentSession.id;
+  const progressDealId=activeDeal?.dealId||currentSession.deal_id||'';
+  const progressCurrent={dealStageCode:activeDeal?.dealStageCode||'',applicationProgressCode:activeDeal?.applicationProgressCode||'',staffId:currentSession.staff_id};
+  const progressNext={dealStageCode:$('#finish-deal-stage').value,applicationProgressCode:$('#finish-application-progress').value};
+  const progressReason=$('#finish-progress-reason').value.trim();
   try{
     await FsMeetingNote.flush();
     await api(`/api/sales/sessions/${meetingId}/finish`,{method:'POST',body:JSON.stringify(body)});
+    // 進捗は任意入力。商談終了の保存自体は進捗の保存失敗に影響されない。
+    if(progressDealId){try{await saveDealProgressChanges(progressDealId,progressNext,progressCurrent,progressReason,'meeting_close')}catch(error){toast(`商談は保存されましたが、進捗の保存に失敗しました：${error.message}`)}}
     $('#finish-dialog').close();FsMeetingNote.clearDraft(meetingId);FsMeetingNote.close();
     currentSession=null;storage.set(ACTIVE_MEETING_KEY,'');form.reset();
     toast('商談結果を保存しました');show('results');await load();

@@ -26,6 +26,14 @@ export function loadSalesCatalog(root = moduleRoot) {
 const parse = (value, fallback = []) => {
   try { return JSON.parse(value); } catch { return fallback; }
 };
+// 申込・審査進捗（AA/A/B/C/D）と案件進捗（A/B/C/D/E/XA/XB）は同じA/Bコードでも別軸。設定ファイルは一度読み込んで使い回す。
+let cachedProgressConfig = null;
+export function loadProgressConfig(root = moduleRoot) {
+  if (!cachedProgressConfig) cachedProgressConfig = readJson(path.join(root, 'config', 'fs-sales', 'progress-statuses.json'));
+  return cachedProgressConfig;
+}
+const PROGRESS_AXIS_IDS = ['deal_stage', 'application_progress'];
+const PROGRESS_SOURCES = ['manual', 'meeting_close', 'system_suggestion', 'import'];
 // DBに重複（同一content_hash）があっても一覧には新しい方だけを出す。削除はしない。
 function dedupeByContentHash(scripts) {
   const indexByHash = new Map();
@@ -179,6 +187,9 @@ export class SalesAssistStore {
       CREATE UNIQUE INDEX IF NOT EXISTS meeting_products_key ON meeting_products(meeting_id, product_code);
       CREATE TABLE IF NOT EXISTS meeting_ai_analyses(id TEXT PRIMARY KEY, meeting_id TEXT, deal_id TEXT DEFAULT '', source_hash TEXT DEFAULT '', model_name TEXT DEFAULT '', status TEXT DEFAULT 'pending', analysis_json TEXT DEFAULT '{}', generated_text TEXT DEFAULT '', edited_text TEXT, generated_at TEXT, edited_by TEXT, edited_at TEXT, is_current INTEGER DEFAULT 1, created_at TEXT, updated_at TEXT);
       CREATE INDEX IF NOT EXISTS meeting_ai_analyses_meeting ON meeting_ai_analyses(meeting_id, created_at);
+      CREATE TABLE IF NOT EXISTS deal_progress(deal_id TEXT PRIMARY KEY, deal_stage_code TEXT DEFAULT '', application_progress_code TEXT DEFAULT '', updated_by TEXT DEFAULT '', updated_at TEXT);
+      CREATE TABLE IF NOT EXISTS deal_progress_history(id TEXT PRIMARY KEY, deal_id TEXT, axis TEXT, from_status TEXT DEFAULT '', to_status TEXT, reason TEXT, source TEXT DEFAULT 'manual', changed_by TEXT DEFAULT '', changed_at TEXT);
+      CREATE INDEX IF NOT EXISTS deal_progress_history_deal ON deal_progress_history(deal_id, changed_at);
     `);
     // 既存の商談メモを論理削除・編集履歴つきの原文メモとして扱えるようにする（追加のみ）
     this.ensureColumn('meeting_memos','deal_id',"TEXT DEFAULT ''");
@@ -603,14 +614,81 @@ export class SalesAssistStore {
     if(!phaseId)return '';
     return this.phases(talkScriptId||'hd-new-ap-20260725').find(item=>item.id===phaseId)?.name||phaseId;
   }
+  // ===== 2軸進捗（申込・審査進捗／案件進捗）=====
+  progressAxis(axisId) {
+    return loadProgressConfig().progressAxes.find(axis => axis.id === axisId);
+  }
+  progressStatusMeta(axisId, code) {
+    if (!code) return null;
+    return this.progressAxis(axisId)?.statuses.find(status => status.code === code) || null;
+  }
+  dealProgressRow(dealId) {
+    if (!dealId) return null;
+    return this.db.prepare('SELECT * FROM deal_progress WHERE deal_id=?').get(dealId) || null;
+  }
+  dealProgressSummary(dealId) {
+    const row = this.dealProgressRow(dealId) || {};
+    const dealStageCode = row.deal_stage_code || '';
+    const applicationProgressCode = row.application_progress_code || '';
+    const dealStageMeta = this.progressStatusMeta('deal_stage', dealStageCode);
+    const applicationMeta = this.progressStatusMeta('application_progress', applicationProgressCode);
+    return {
+      dealStageCode,
+      dealStageLabel: dealStageMeta?.label || '',
+      applicationProgressCode,
+      applicationProgressLabel: applicationMeta?.label || '',
+      applicationProgressHint: applicationMeta?.nextActionHint || '',
+      progressUpdatedBy: row.updated_by || '',
+      progressUpdatedAt: row.updated_at || ''
+    };
+  }
+  // 片方の軸だけを更新し、もう片方は触らない。不正なcodeは保存せず例外を投げる（自動変更・自動推定は行わない）
+  setDealProgress(id, data = {}) {
+    const target = this.deal(id); if (!target) return null;
+    const dealId = target.deal.dealId; if (!dealId) return null;
+    const axis = data.axis;
+    if (!PROGRESS_AXIS_IDS.includes(axis)) throw new Error('進捗の種類（axis）が正しくありません');
+    const axisConfig = this.progressAxis(axis);
+    const code = String(data.code || '').trim();
+    if (!axisConfig?.statuses.some(status => status.code === code)) throw new Error(`${axisConfig?.label || axis}に存在しないコードです: ${code}`);
+    const column = axis === 'deal_stage' ? 'deal_stage_code' : 'application_progress_code';
+    const existing = this.dealProgressRow(dealId);
+    const fromStatus = existing?.[column] || '';
+    const actor = String(data.actor || 'FS');
+    const source = PROGRESS_SOURCES.includes(data.source) ? data.source : 'manual';
+    const reason = data.reason ? (String(data.reason).trim() || null) : null;
+    const timestamp = now();
+    this.db.transaction(() => {
+      if (existing) {
+        this.db.prepare(`UPDATE deal_progress SET ${column}=?,updated_by=?,updated_at=? WHERE deal_id=?`).run(code, actor, timestamp, dealId);
+      } else {
+        this.db.prepare('INSERT INTO deal_progress(deal_id,deal_stage_code,application_progress_code,updated_by,updated_at) VALUES(?,?,?,?,?)')
+          .run(dealId, axis === 'deal_stage' ? code : '', axis === 'application_progress' ? code : '', actor, timestamp);
+      }
+      if (fromStatus !== code) {
+        this.db.prepare('INSERT INTO deal_progress_history(id,deal_id,axis,from_status,to_status,reason,source,changed_by,changed_at) VALUES(?,?,?,?,?,?,?,?,?)')
+          .run(`progress_${crypto.randomUUID()}`, dealId, axis, fromStatus, code, reason, source, actor, timestamp);
+      }
+    })();
+    if (fromStatus !== code) this.audit(actor, 'update_progress', 'deal_progress', dealId, { axis, from:fromStatus, to:code, reason:reason||'', source });
+    return { progress:this.dealProgressSummary(dealId), changed:fromStatus!==code };
+  }
+  dealProgressHistory(id, limit = 200) {
+    const target = this.deal(id); if (!target) return null;
+    const dealId = target.deal.dealId; if (!dealId) return [];
+    // 表示は古い順（8/7→8/8→8/9のような時系列ログ）。直近limit件を残してから時系列順に並べ直す
+    return this.db.prepare('SELECT * FROM deal_progress_history WHERE deal_id=? ORDER BY changed_at DESC, rowid DESC LIMIT ?').all(dealId, limit).reverse();
+  }
   dealOf(preparation,session) {
     // 進行中は商談準備の最新内容を反映し、終了後は当時のスナップショット（商談セッション側）を残す
     const primary=!preparation||session?.finished_at?session:preparation;
     const context={...buildContext({}),...(primary?.context_data||{})};
     const source=primary||{};
     const status=dealStatus({preparationStatus:preparation?.status,session,meetingAt:context.meetingAt});
+    const dealId=preparation?.deal_id||session?.deal_id||'';
     return {
-      dealId:preparation?.deal_id||session?.deal_id||'',
+      dealId,
+      ...this.dealProgressSummary(dealId),
       preparationId:preparation?.id||'',
       meetingId:session?.id||'',
       status,

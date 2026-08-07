@@ -108,6 +108,9 @@ function doPost(event) {
     else if (request.action === 'listMasterJobs') data = hdListMasterJobs_(request);
     else if (request.action === 'updateMasterStatus') data = hdUpdateMasterStatus_(request);
     else if (request.action === 'consolidateRouteCsv') data = hdConsolidateRouteCsv_(request);
+    else if (request.action === 'listIsAreaFolders') data = hdIsListAreaFolders_(request.rootId);
+    else if (request.action === 'resolveIsArea') data = hdIsResolveArea_(request.rootId, request.areaFolderId);
+    else if (request.action === 'uploadIsExportCsv') data = hdIsUploadExportCsv_(request);
     else throw new Error('未対応のactionです: ' + request.action);
     return hdJson_({ ok: true, data: data });
   } catch (error) {
@@ -262,4 +265,77 @@ function hdConsolidateRouteCsv_(request) {
   var csv = '\uFEFF' + combined.map(function(row) { return row.map(function(value) { return '"' + String(value == null ? '' : value).replace(/"/g, '""') + '"'; }).join(','); }).join('\r\n');
   var output = exportFolder.createFile(Utilities.newBlob(csv, 'text/csv', fileName)).setDescription(JSON.stringify({ jobId: request.jobId, integrated: true, route: request.route, sourceFileIds: members.reduce(function(all, item) { return all.concat(item.fileIds || []); }, []) }));
   return { id: output.getId(), name: output.getName(), url: output.getUrl(), count: combined.length - 1 };
+}
+
+// =====================================================================
+// HD AIアシスタント > IS > リスト生成 > 自動取得 専用アダプター
+// 既存の飲食店ルート（root/都道府県/市区町村）とは異なり、
+// ISのルート直下には市区町村フォルダが直接ぶら下がる（プレフィックス階層なし）。
+// 既存のhd*関数・doPostの既存分岐は変更せず、このセクションだけ追加する。
+// =====================================================================
+
+function hdIsListAreaFolders_(rootId) {
+  if (!rootId) throw new Error('rootIdが指定されていません');
+  var root = DriveApp.getFolderById(rootId);
+  return hdIteratorToArray_(root.getFolders()).map(function(folder) {
+    return { id: folder.getId(), name: folder.getName() };
+  });
+}
+
+function hdIsOptionalFolder_(parent, name) {
+  var matches = hdIteratorToArray_(parent.getFoldersByName(name));
+  return matches.length === 1 ? matches[0] : null;
+}
+
+function hdIsResolveArea_(rootId, areaFolderId) {
+  if (!rootId) throw new Error('rootIdが指定されていません');
+  if (!areaFolderId) throw new Error('areaFolderIdが指定されていません');
+  var root = DriveApp.getFolderById(rootId);
+  var areaFolder = DriveApp.getFolderById(areaFolderId);
+  var parents = hdIteratorToArray_(areaFolder.getParents());
+  if (!parents.some(function(parent) { return parent.getId() === root.getId(); })) {
+    throw new Error('指定フォルダはISルート直下ではありません: ' + areaFolder.getName());
+  }
+  var exportsFolder = hdIsOptionalFolder_(areaFolder, '完成版CSVエクスポート');
+  if (!exportsFolder) throw hdApiError_('location_not_found', 'フォルダ「完成版CSVエクスポート」が見つかりません: ' + areaFolder.getName(), []);
+  var inputFolder = hdIsOptionalFolder_(areaFolder, 'CSV投入フォルダ');
+  var processedFolder = hdIsOptionalFolder_(areaFolder, '処理済みフォルダ');
+  var areaName = areaFolder.getName();
+  var files = hdIteratorToArray_(areaFolder.getFiles());
+  var sheet = files.filter(function(file) {
+    return file.getMimeType() === MimeType.GOOGLE_SHEETS && file.getName().indexOf(areaName) >= 0;
+  })[0];
+  return {
+    areaFolderId: areaFolder.getId(), areaName: areaName,
+    exportFolderId: exportsFolder.getId(),
+    inputFolderId: inputFolder ? inputFolder.getId() : '',
+    processedFolderId: processedFolder ? processedFolder.getId() : '',
+    spreadsheetId: sheet ? sheet.getId() : '', spreadsheetName: sheet ? sheet.getName() : ''
+  };
+}
+
+// 完成版CSVエクスポートへ直接保存する。既存ファイルは絶対に上書きしない。
+// 同名ファイルがあれば _2, _3 ... と連番を付けて別ファイルとして保存する。
+function hdIsUploadExportCsv_(request) {
+  if (!request.exportFolderId || !request.name || !request.contentBase64) throw new Error('IS CSVアップロード情報が不足しています');
+  var folder = DriveApp.getFolderById(request.exportFolderId);
+  var lock = LockService.getScriptLock();
+  lock.waitLock(10000);
+  try {
+    var dot = request.name.lastIndexOf('.');
+    var baseName = dot > 0 ? request.name.slice(0, dot) : request.name;
+    var extension = dot > 0 ? request.name.slice(dot) : '';
+    var candidate = request.name;
+    var suffix = 2;
+    while (hdIteratorToArray_(folder.getFilesByName(candidate)).length) {
+      candidate = baseName + '_' + suffix + extension;
+      suffix++;
+    }
+    var bytes = Utilities.base64Decode(request.contentBase64);
+    var blob = Utilities.newBlob(bytes, 'text/csv', candidate);
+    var file = folder.createFile(blob).setDescription(JSON.stringify({ jobId: request.jobId, source: 'is-list-generation' }));
+    return hdFileInfo_(file, candidate !== request.name);
+  } finally {
+    lock.releaseLock();
+  }
 }
