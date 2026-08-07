@@ -204,24 +204,31 @@ function Invoke-Setup {
         Write-Warn ".env を .env.example から作成しました。実行前に中身（GASのURL・シークレット等）を編集してください: $envFile"
     }
 
-    Write-Step '本体の依存パッケージを取得します（npm install）...'
-    Invoke-Npm @('install') $ScriptDir
+    # コムデスク投入に必要なものを先に入れる。
+    # ルート側は better-sqlite3 のビルドで失敗することがあるため後回しにし、
+    # 失敗しても投入機能だけは使える状態で終われるようにする。
+    Write-Step 'コムデスク投入ツールの依存パッケージを取得します（npm install）...'
+    Invoke-Npm @('install') $ImporterDir
     if ($script:LastExit -ne 0) {
-        Write-Err 'npm install に失敗しました。'
-        Write-Host '  better-sqlite3 のビルドで失敗する場合は、以下のどちらかを試してください。'
-        Write-Host '    ・Node.js を LTS（20 または 22）に合わせる'
-        Write-Host '    ・winget install Microsoft.VisualStudio.2022.BuildTools でビルドツールを入れる'
+        Write-Err 'npm install に失敗しました（comdesk-playwright-importer）。'
         Write-Host '  社内プロキシ環境では npm config set proxy / https-proxy の設定が必要なことがあります。'
         return
     }
 
-    Write-Step 'コムデスク投入ツールの依存パッケージを取得します（npm install）...'
-    Invoke-Npm @('install') $ImporterDir
-    if ($script:LastExit -ne 0) { Write-Err 'npm install に失敗しました。'; return }
-
-    Write-Step 'Playwright用のChromiumを取得します...'
+    Write-Step 'Playwright用のChromiumを取得します（500MBほどダウンロードします）...'
     Invoke-Npm @('run', 'install-browser') $ImporterDir
     if ($script:LastExit -ne 0) { Write-Err 'ブラウザの取得に失敗しました。'; return }
+
+    Write-Step '本体の依存パッケージを取得します（npm install）...'
+    Invoke-Npm @('install') $ScriptDir
+    if ($script:LastExit -ne 0) {
+        Write-Warn '本体側の npm install に失敗しました。'
+        Write-Host '  ただし「コムデスクへの投入」（メニュー 5〜8）はこのままでも使えます。'
+        Write-Host '  リスト取得やSlack常駐アプリも使う場合は、次のどちらかを試してください。'
+        Write-Host '    ・Node.js を LTS（20 または 22）に合わせる'
+        Write-Host '    ・winget install Microsoft.VisualStudio.2022.BuildTools でビルドツールを入れる'
+        $script:LastExit = 0
+    }
 
     Write-Step 'セットアップが完了しました。次は「2) コムデスクにログイン」を実行してください。'
 }

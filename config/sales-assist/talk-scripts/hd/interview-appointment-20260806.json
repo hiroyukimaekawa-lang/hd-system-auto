@@ -1,0 +1,13 @@
+{
+  "id": "hd-interview-appointment-20260806",
+  "departmentId": "hd",
+  "name": "HDトークスクリプト（取材アポ版）",
+  "products": ["ホームページ無料制作", "エネパル"],
+  "customerType": "店舗オーナー・小規模事業者",
+  "appointmentType": "HP無料制作の案内として取得したアポ（取材アポ版）",
+  "version": "2026/08/06",
+  "status": "published",
+  "defaultForPreparation": true,
+  "updatedAt": "2026-08-06",
+  "phaseSource": "config/fs-sales/import/HD_TALK_SCRIPT_INTERVIEW_20260806_RAW.md"
+}

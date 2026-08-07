@@ -347,28 +347,46 @@ async function finalizeImport(page, job, settings = {}) {
   if (!projectId || projectId !== listedProjectId) throw new Error(`通知とプロジェクト一覧のIDが一致しません: 通知=${projectId || '不明'} 一覧=${listedProjectId}`);
   await precheck.click();
   await waitForPageReady(page, 90_000);
-  await waitForImportReview(page, job, projectId);
+  try {
+    await waitForImportReview(page, job, projectId);
+  } catch (error) {
+    // Comdeskの通知リンクは、一度開いた後にプロジェクト一覧へ戻ることがある。
+    // 一覧と通知のIDが一致済みの場合だけ、同じIDの確認画面へ直接戻る。
+    if (!String(error.message).startsWith('通知を開きましたが重複確認画面を確認できません:')) throw error;
+    console.log(`既読通知から確認画面へ直接再開: ${job.projectName} / ${job.workgroup} / ID=${projectId}`);
+    await page.goto(`${comdeskUrl()}/manage/project/${projectId}/check_import`, { waitUntil: 'domcontentloaded', timeout: 90_000 });
+    await waitForPageReady(page, 90_000);
+    await waitForImportReview(page, job, projectId);
+  }
   const { newRows, duplicates, blocked } = await waitForReviewCounts(page, job.rows);
   await applyDuplicateDecisions(page, { newRows, duplicates, blocked });
   const submit = page.locator('input[type="submit"]:visible').first();
   await submit.waitFor({ state: 'visible', timeout: 30_000 });
-  const confirmation = { accepted: false, message: '', startedAlertAccepted: false, startedAlertMessage: '' };
+  const confirmation = { accepted: false, messages: [], message: '', startedAlertAccepted: false, startedAlertMessage: '' };
   await Promise.all([
     page.waitForEvent('dialog', { timeout: 30_000 }).then(async (dialog) => {
-      confirmation.message = dialog.message().replace(/\s+/g, ' ').trim();
-      if (!isExpectedSubmitConfirmation(dialog.type(), confirmation.message)) {
-        await dialog.dismiss();
-        throw new Error(`想定外の確認ダイアログのため送信を停止しました: ${confirmation.message || dialog.type()}`);
+      let current = dialog;
+      for (let attempt = 0; attempt < 4; attempt += 1) {
+        const message = current.message().replace(/\s+/g, ' ').trim();
+        if (isExpectedImportStartedAlert(current.type(), message)) {
+          confirmation.startedAlertMessage = message;
+          await current.accept();
+          confirmation.startedAlertAccepted = true;
+          return;
+        }
+        if (!isExpectedSubmitConfirmation(current.type(), message) || confirmation.messages.length >= 3) {
+          await current.dismiss();
+          const label = confirmation.accepted ? 'インポート開始' : '確認';
+          throw new Error(`想定外の${label}ダイアログのため停止しました: ${message || current.type()}`);
+        }
+        confirmation.messages.push(message);
+        confirmation.message = message;
+        const nextDialog = page.waitForEvent('dialog', { timeout: 30_000 });
+        await current.accept();
+        confirmation.accepted = true;
+        current = await nextDialog;
       }
-      const startedAlert = page.waitForEvent('dialog', { timeout: 30_000 });
-      await dialog.accept(); confirmation.accepted = true;
-      const alert = await startedAlert;
-      confirmation.startedAlertMessage = alert.message().replace(/\s+/g, ' ').trim();
-      if (!isExpectedImportStartedAlert(alert.type(), confirmation.startedAlertMessage)) {
-        await alert.dismiss();
-        throw new Error(`想定外のインポート開始ダイアログのため停止しました: ${confirmation.startedAlertMessage || alert.type()}`);
-      }
-      await alert.accept(); confirmation.startedAlertAccepted = true;
+      throw new Error('インポート開始ダイアログを確認できなかったため停止しました');
     }),
     submit.click()
   ]);
@@ -389,7 +407,7 @@ async function finalizeImport(page, job, settings = {}) {
     maxWaitMs,
     pollMs
   });
-  return { projectId, newRows, duplicates, blocked, confirmationMessage: confirmation.message, startedAlertMessage: confirmation.startedAlertMessage, importCompletedAt: new Date().toISOString(), completionNotification: (await completion.innerText()).trim() };
+  return { projectId, newRows, duplicates, blocked, confirmationMessage: confirmation.message, confirmationMessages: confirmation.messages, startedAlertMessage: confirmation.startedAlertMessage, importCompletedAt: new Date().toISOString(), completionNotification: (await completion.innerText()).trim() };
 }
 
 async function confirmCompletionOnly(page, job, settings = {}) {

@@ -2,6 +2,7 @@
 const FsMeetingNote=(()=>{
   const AUTOSAVE_MS=4000;
   let input=null,list=null,status=null,request=null,phaseLabel=()=>'';
+  let historyDetails=null,historyCount=null,historyEmpty=null;
   let meetingId='',phaseId='',timer=null,dirty=false,saving=false;
   const draftKey=id=>`hdMemoDraft:${id}`;
   const localDraft=(id,value)=>{
@@ -16,10 +17,11 @@ const FsMeetingNote=(()=>{
   function renderMemos(memos){
     if(!list)return;
     list.textContent='';
-    if(!memos.length){
-      const empty=document.createElement('p');empty.className='muted small';empty.textContent='メモはまだありません。気づいたことをそのまま入力してください。';
-      list.append(empty);return;
-    }
+    // 0件のときは折りたたみを使わず、短い案内だけを表示する
+    if(historyDetails)historyDetails.hidden=!memos.length;
+    if(historyEmpty)historyEmpty.hidden=Boolean(memos.length);
+    if(historyCount)historyCount.textContent=memos.length?`（${memos.length}）`:'';
+    if(!memos.length)return;
     for(const memo of [...memos].reverse()){
       const article=document.createElement('article');article.className='meeting-memo';
       const head=document.createElement('small');
@@ -60,6 +62,7 @@ const FsMeetingNote=(()=>{
   return {
     mount(options){
       input=options.input;list=options.list;status=options.status;request=options.request;
+      historyDetails=options.historyDetails||null;historyCount=options.historyCount||null;historyEmpty=options.historyEmpty||null;
       if(options.phaseLabel)phaseLabel=options.phaseLabel;
       if(!input)return;
       input.addEventListener('keydown',event=>{
@@ -89,6 +92,8 @@ const FsMeetingNote=(()=>{
       clearTimeout(timer);saveDraft();
     },
     flush(){clearTimeout(timer);return saveDraft(true)},
+    // 入力中のテキストが残っていればメモとして追加してから確定させる（AI整理の前に使う）
+    async commit(){if(input&&input.value.trim())await addMemo();return reload()},
     reload,
     close(){clearTimeout(timer);meetingId='';phaseId='';if(input)input.value='';renderMemos([]);setStatus('自動保存されます')},
     clearDraft(id){localDraft(id||meetingId,'')}

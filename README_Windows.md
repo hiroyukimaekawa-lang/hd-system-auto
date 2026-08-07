@@ -1,120 +1,83 @@
-# コムデスク自動投入 ― Windows（PowerShell）用
+# コムデスク自動投入 ― Windows用
 
 Googleスプレッドシートの営業リストを、コムデスクへ自動で登録します。
-**上から順番にコマンドをコピー＆ペーストするだけ**で動きます。
 
-- VS Codeは必要ありません。**Windows標準の「PowerShell」**だけで完結します。
-  （VS Codeの中でやっていたのと同じことが、PowerShellでそのままできます）
-- 「準備」は最初の1回だけ。ふだんは「毎回の使い方」だけでOKです。
-- リンクは必ず「**リンクを知っている全員が閲覧可**」で共有してください。
-
----
-
-## 最初に：PowerShellをこのフォルダで開く
-
-VS Codeを使わず、Windows標準のPowerShellだけで開く方法です。どれか1つでOK。
-
-### 方法1：エクスプローラーのアドレスバーから開く（かんたん・おすすめ）
-
-1. エクスプローラーでこのフォルダ（`hd-system-auto`）を開きます。
-2. 画面上部の**アドレスバー**（フォルダの場所が出ている横長の欄）をクリックします。
-3. そこに `powershell` と入力して Enter。
-   → そのフォルダの場所でPowerShellが開きます。
-
-### 方法2：スタートメニューから開いて場所を移動する（確実）
-
-1. スタートメニューで「**PowerShell**」と検索して開きます
-   （「Windows PowerShell」または「ターミナル」どちらでもOK）。
-2. エクスプローラーでこのフォルダを **Shift を押しながら右クリック** →「**パスのコピー**」。
-3. PowerShellに次を入力し、`ここに貼り付け` の部分を貼り付け（Ctrl+V）して Enter。
-
-   ```powershell
-   cd ここに貼り付け
-   ```
-
-   （パスは引用符 `"` 付きで貼り付けられます。そのままEnterで大丈夫です）
-
-これ以降のコマンドは、すべてこのPowerShellに貼り付けていきます。
+**必要なのは Node.js だけです。** VS Code も PowerShell の設定変更も要りません。
+以降は `run.bat` をダブルクリックして、**表示される番号を選ぶだけ**で動きます。
 
 ---
 
 ## 準備（最初の1回だけ）
 
-### 1. Node.jsを入れる
+### 1. Node.js を入れる
 
-入っていない場合は次を実行し、**終わったらPowerShellを一度閉じて開き直します**（「最初に」をやり直す）。
+スタートメニューで「PowerShell」または「コマンド プロンプト」を開き、次を実行します。
 
 ```powershell
 winget install OpenJS.NodeJS.LTS
 ```
 
-### 2. 必要なものを入れる
+うまくいかない場合は <https://nodejs.org/ja/download> から **LTS版** のインストーラを入れてください。
 
-```powershell
-cd comdesk-playwright-importer
-npm install
-npm run install-browser
-cd ..
-```
+> **インストールが終わったら、開いていた画面はいったん全部閉じてください。**
+> 閉じないと Node.js が認識されません。
 
-### 3. コムデスクにログイン
+### 2. セットアップを実行する
 
-```powershell
-cd comdesk-playwright-importer
-npm run login
-cd ..
-```
+1. エクスプローラーでこのフォルダ（`hd-system-auto`）を開きます。
+2. **`run.bat` をダブルクリック**します。
+3. メニューが出るので **`1`** と入力して Enter。
 
-自動で開いたChromeでいつも通りコムデスクにログインし、「プロジェクト管理」画面まで進んでから、**PowerShellに戻ってEnterキー**を押します（ログイン状態が保存されます。切れたときだけやり直せばOK）。
+これで必要なもの（Chromium を含む・500MBほど）が自動で入ります。数分かかります。
+
+### 3. コムデスクにログインする
+
+1. もう一度 `run.bat` をダブルクリックし、**`2`** を入力して Enter。
+2. 自動で開いたブラウザで、いつも通りコムデスクにログインし、**「プロジェクト管理」画面**まで進みます。
+3. 黒い画面（`run.bat` の画面）に戻って **Enter** を押します。
+
+ログイン状態が保存されます。パスワードは保存されません。切れたときだけこの手順をやり直してください。
 
 ---
 
 ## 毎回の使い方
 
-Windows（Windows Terminal）
-ショートカットキー: Ctrl + Shift + T
-マウス操作: ターミナル上部タブバーの +（プラス）アイコンをクリック
+`run.bat` をダブルクリックすると、この画面が出ます。
 
-### A. 1件だけ投入する
-
-まず確認（登録されません）。`ここにリンク` を貼り替えてください。
-
-```powershell
-npm run comdesk:auto:dry -- --spreadsheet-url="ここにリンク"
+```
+ 1) 初回セットアップ（最初の1回だけ）
+ 2) コムデスクにログイン（初回・ログイン切れ時）
+ 3) 確認実行（書き込みなし / dry-run）
+ 4) 本番実行
+ 5) スプレッドシートからコムデスクへ投入（確認）
+ 6) スプレッドシートからコムデスクへ投入（本番）
+ 7) 複数スプレッドシートを一括投入（確認）
+ 8) 複数スプレッドシートを一括投入（本番）
+ 9) HD AIアシスタントを開く
+10) Slack常駐アプリを起動
+11) 設定・構文チェック
+ 0) 終了
 ```
 
-問題なければ本番投入します。
+### 1件だけ投入する
 
-```powershell
-$env:COMDESK_EXECUTE="true"; npm run comdesk:auto -- --spreadsheet-url="ここにリンク" --execute
-```
+投入したいスプレッドシートは、**「リンクを知っている全員が閲覧可」** に共有しておいてください。
 
-間違えている場合
-npm run comdesk:auto:dry -- --spreadsheet-url="ここにリンク" --project-name="自分が入れたいプロジェクト名"
+1. **`5`** を入力 → スプレッドシートのリンクを貼り付けて Enter。
+   → 登録はされません。プロジェクト名と件数だけ確認できます。
+2. 内容が想定通りなら、もう一度 `run.bat` を開いて **`6`** を入力 → 同じリンクを貼り付け。
+   → 確認が2回出るので `y` で進むと、本番投入されます。
 
-$env:COMDESK_EXECUTE="true"; npm run comdesk:auto -- --spreadsheet-url="ここにリンク" --project-name="神奈川県_横浜市泉区" --execute
+### 何件もまとめて投入する
 
-### B. 何件もまとめて投入する
+**最初の1回だけ**、リスト用のファイルを作ります。エクスプローラーで
+`config\comdesk-batch.example.txt` をコピーして、名前を `comdesk-batch.txt` に変えてください。
 
-**最初の1回だけ**、リスト用のファイルを作ります。
+そのファイルをメモ帳で開き、投入したいリンクを**1行に1つずつ**貼り付けて保存します
+（空行と、行頭が `#` の行は無視されます）。
 
-```powershell
-Copy-Item config\comdesk-batch.example.txt config\comdesk-batch.txt
-```
-
-`config\comdesk-batch.txt` をメモ帳で開き、投入したいリンクを**1行に1つずつ**貼り付けて保存します（空行と、行頭が `#` の行は無視されます）。
-
-まず確認（登録されません）。
-
-```powershell
-npm run comdesk:batch:dry -- --list=config/comdesk-batch.txt
-```
-
-問題なければ本番投入します（リストの上から順番に投入されます）。
-
-```powershell
-$env:COMDESK_EXECUTE="true"; npm run comdesk:batch -- --list=config/comdesk-batch.txt --execute
-```
+1. **`7`** を入力 → リストのパスを聞かれたら `config\comdesk-batch.txt` と入力（確認だけ）。
+2. 問題なければ **`8`** で本番投入。上から順番に投入されます。
 
 ---
 
@@ -122,19 +85,45 @@ $env:COMDESK_EXECUTE="true"; npm run comdesk:batch -- --list=config/comdesk-batc
 
 | 症状 | 対処 |
 | --- | --- |
-| `node : 用語 node は認識されません` | Node.js未インストール、または入れた後にPowerShellを開き直していない |
-| `npm : 用語 npm は認識されません` | 同上。Node.jsを入れると npm も一緒に入る |
-| `スクリプトの実行がシステムで無効になっています` | このPowerShellで次を1回実行してから、もう一度貼り付ける → `Set-ExecutionPolicy -Scope Process Bypass` |
-| 「ログイン」や「取得できません」で止まる | ログインが切れています。準備の「3. コムデスクにログイン」をやり直す |
-| 「スプレッドシートを取得できません」 | シートの共有を「リンクを知っている全員が閲覧可」にする |
-| 日本語が文字化けする | cmd.exe（黒い画面）ではなく、PowerShell（またはWindows Terminal）を使う |
-| コマンドを貼っても場所が違うと言われる | PowerShellが別の場所にいます。「最初に：PowerShellをこのフォルダで開く」をやり直す |
+| `run.bat` を開くと「Node.js was not found」と出る | Node.js が未インストールか、入れた後に画面を開き直していません。準備の1をやり直してください |
+| ダブルクリックしても一瞬で画面が消える | `run.bat` を右クリック →「編集」で中身が見られる状態か確認してください。ファイルが壊れている場合は再取得が必要です |
+| 「ログイン」や「取得できません」で止まる | ログインが切れています。メニューの `2` をやり直してください |
+| 「スプレッドシートを取得できません」 | シートの共有を「リンクを知っている全員が閲覧可」にしてください |
+| 「アクセスできるユーザーが…」で止まる | 指定ユーザーが画面上に見つからないと、誤登録防止のため停止します。コムデスクのユーザー一覧を確認してください |
+| セットアップ（`1`）の途中で `better-sqlite3` のエラーが出る | コムデスク投入（`5`〜`8`）はそのまま使えます。リスト取得やSlackも使う場合のみ `winget install Microsoft.VisualStudio.2022.BuildTools` を実行してください |
+| 会社のプロキシがあってダウンロードできない | `npm config set proxy http://社内プロキシ:ポート` と `npm config set https-proxy http://社内プロキシ:ポート` を設定してから、もう一度 `1` を実行 |
+| 日本語が文字化けする | `run.bat` から起動していれば化けません。直接コマンドを打っている場合は Windows Terminal を使ってください |
+
+> `PowerShell` の「スクリプトの実行がシステムで無効になっています」というエラーは、
+> `run.bat` 経由なら**そもそも出ません**（PowerShell を使わないため）。
+
+---
+
+## 上級者向け：コマンドで直接動かす
+
+メニューを出さずに実行することもできます。PowerShell / コマンドプロンプトのどちらでも動きます。
+
+```powershell
+node scripts\win-menu.js comdesk --spreadsheet-url="ここにリンク"
+node scripts\win-menu.js comdesk --spreadsheet-url="ここにリンク" --execute
+node scripts\win-menu.js batch --list=config\comdesk-batch.txt --execute
+node scripts\win-menu.js comdesk --spreadsheet-url="ここにリンク" --project-name="神奈川県_横浜市泉区" --execute
+```
+
+指定できるタスク: `setup` / `login` / `dry` / `run` / `comdesk` / `batch` / `merge` / `assistant` / `slack` / `check`
+
+`run.bat` に同じ引数を渡すこともできます（`run.bat comdesk --spreadsheet-url="..."`）。
+終了時の Enter 待ちを省くには、`--no-pause` を**先頭に**付けてください。
+
+PowerShell 版のランチャー `run.ps1` も従来どおり使えます（実行ポリシーの設定が必要な場合があります）。
 
 ---
 
 ## 補足
 
 - 投入の記録（状態・結果・ログ・停止時のスクリーンショット）は `data\comdesk-jobs\` に保存されます。
-- 一括投入は、途中で1件失敗しても残りは続行し、最後に「成功○件／失敗○件」を表示します。1件でも失敗したら止めたい場合は、コマンドの末尾に ` --stop-on-error` を足します。
-- LINEのテキストから自動実行する機能は今後の予定です（現在はこのPowerShell操作で行います）。
+- 一括投入は、途中で1件失敗しても残りは続行し、最後に「成功○件／失敗○件」を表示します。
+  1件でも失敗したら止めたい場合は `--stop-on-error` を付けてください。
+- 本番投入のON/OFFは `.env` の `COMDESK_EXECUTE`（`true` で本番有効）。
+  `false` のままでも、メニューが「この1回だけ有効にしますか？」と確認してくれます。
 - 仕組みや他機能の内部資料は `docs\内部メモ.md` にあります。

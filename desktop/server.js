@@ -13,6 +13,8 @@ import { ObsidianSalesArchive } from '../src/obsidian-sales-archive.js';
 import { ObsidianHdArchitecture } from '../src/obsidian-hd-architecture.js';
 import { LocalSqliteSalesMaterialRepository } from '../src/repositories/sqlite-sales-material-repository.js';
 import { analyzeMeeting, ANALYSIS_DISCLAIMER, MEETING_PRODUCTS } from '../src/meeting-analysis.js';
+import { parseScriptStructure, optionalLlmStructure } from '../src/script-structure-parser.js';
+import { getLlmProvider } from '../src/llm-provider.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 loadEnv(path.join(root, '.env'));
@@ -142,6 +144,22 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && /^\/api\/sales\/talk-scripts\/[^/]+\/objection-notes$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); return json(response,200,{ok:true,notes:sales.objectionNotes(id)}); }
     if (request.method === 'POST' && /^\/api\/sales\/talk-scripts\/[^/]+\/objection-notes$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const note=sales.addObjectionNote(id,body); if(note?.session_id)syncSession(note.session_id); syncLibraries(); return json(response,note?201:404,{ok:Boolean(note),note}); }
     if (request.method === 'POST' && request.url === '/api/sales/talk-scripts') { const body=await readBody(request); try { const script=sales.createTalkScript(body); syncLibraries(); return json(response,201,{ok:true,script}); } catch (error) { return json(response,400,{ok:false,text:error.message}); } }
+    // 長文貼り付け→自動フロー化：見出しルールパーサー（LLM不要）で構造化する。何もDBへ保存しない（プレビューのみ）。
+    if (request.method === 'POST' && request.url === '/api/sales/talk-scripts/parse') {
+      const body = await readBody(request);
+      const text = String(body.text || '');
+      if (!text.trim()) return json(response, 400, { ok:false, text:'原稿を貼り付けてください' });
+      const result = parseScriptStructure(text);
+      let aiUsed = false;
+      if (!result.headingCount) {
+        // 見出しが無い自由文のときだけ、設定済みのLLM providerで補助する（未設定なら決定的フォールバックのまま）
+        const llmResult = await optionalLlmStructure(text, getLlmProvider());
+        if (llmResult?.phases?.length) { result.phases = llmResult.phases; aiUsed = true; }
+      }
+      return json(response, 200, { ok:true, ...result, aiUsed });
+    }
+    if (request.method === 'POST' && /^\/api\/sales\/talk-scripts\/[^/]+\/publish$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); try { const script=sales.publishTalkScript(id,body.actor||'FS'); if(script)syncLibraries(); return json(response,script?200:404,{ok:Boolean(script),script,...(script?{}:{text:'トークスクリプトが見つかりません'})}); } catch (error) { return json(response,400,{ok:false,text:error.message}); } }
+    if (request.method === 'POST' && /^\/api\/sales\/talk-scripts\/[^/]+\/archive$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); try { const script=sales.archiveTalkScript(id,body.actor||'FS'); if(script)syncLibraries(); return json(response,script?200:404,{ok:Boolean(script),script,...(script?{}:{text:'トークスクリプトが見つかりません'})}); } catch (error) { return json(response,400,{ok:false,text:error.message}); } }
     if (request.method === 'POST' && request.url === '/api/sales/sessions') { const body=await readBody(request); return json(response, 201, { ok:true, session:sales.start(body) }); }
     if (request.method === 'POST' && request.url === '/api/sales/preparations') { const body=await readBody(request); const preparation=sales.prepare(body); syncPreparation(preparation.id); return json(response, 201, { ok:true, preparation }); }
     if (request.method === 'POST' && /^\/api\/sales\/preparations\/[^/]+\/open$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const session=sales.openPreparation(id); if(session)syncSession(session.id); return json(response,session?200:404,{ok:Boolean(session),session}); }
