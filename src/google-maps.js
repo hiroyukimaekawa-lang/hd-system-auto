@@ -1,5 +1,9 @@
 import { backoff, isTargetAddress, sleep, splitAddress } from './scraper-utils.js';
 
+export class CaptchaError extends Error {
+  constructor(message) { super(message); this.name = 'CaptchaError'; this.jobStatus = 'needs_human'; }
+}
+
 async function textOrEmpty(locator) {
   try { return (await locator.first().innerText({ timeout: 1500 })).trim(); } catch { return ''; }
 }
@@ -61,6 +65,10 @@ export async function runGoogleMapsJob(browser, job, existingUrls, onRecord, log
   const page = await context.newPage();
   const query = `${job.area} ${job.keyword}`;
   await page.goto(`https://www.google.co.jp/maps/search/${encodeURIComponent(query)}?hl=ja`, { waitUntil: 'domcontentloaded', timeout: 45000 });
+  if (/google\.com\/sorry\//.test(page.url()) || /unusual traffic|automated queries/i.test(await page.locator('body').innerText().catch(() => ''))) {
+    await context.close();
+    throw new CaptchaError('Google Mapsで自動アクセス制限(CAPTCHA)を検知しました');
+  }
   const consent = page.getByRole('button', { name: /すべて同意|Accept all/i });
   if (await consent.count()) await consent.first().click().catch(() => {});
   const links = await collectLinks(page, job.maxItems, log);

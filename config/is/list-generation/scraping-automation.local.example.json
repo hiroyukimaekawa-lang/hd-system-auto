@@ -1,0 +1,14 @@
+{
+  "drive": {
+    "rootFolderId": "1EVUOKS-sIIWSy5J_WXEh2fAg6ip5rnsS"
+  },
+  "poc": {
+    "autoUploadToComdesk": false,
+    "sources": [
+      "google_maps",
+      "tabelog"
+    ],
+    "maxResultsPerSource": 50,
+    "stopOnCaptcha": true
+  }
+}

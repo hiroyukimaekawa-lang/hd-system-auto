@@ -65,9 +65,36 @@ test('FS UI レイアウト・簡略化のスモークテスト', async () => {
     });
     assert.equal(cardOverflow.length, 0, 'script-card footer buttons must stay inside the card');
 
-    // ===== 商談実行画面（中央）：SCRIPT_MINIMAL_UI 要件 =====
+    // ===== 商談実行画面（左）：フェーズ一覧は内部スクロール禁止・全件常時表示 =====
     await page.evaluate(() => window.show('assist'));
     await page.waitForSelector('.script-panel');
+    for (const viewport of [{ width: 1280, height: 800 }, { width: 1440, height: 900 }]) {
+      await page.setViewportSize(viewport);
+      const railState = await page.evaluate(() => {
+        const rail = document.querySelector('.phase-rail');
+        const buttons = [...document.querySelectorAll('#phase-list [data-phase]')];
+        const railRect = rail.getBoundingClientRect();
+        const allWithin = buttons.every(button => {
+          const r = button.getBoundingClientRect();
+          return r.top >= railRect.top - 1 && r.bottom <= railRect.bottom + 1;
+        });
+        return {
+          overflow: rail.scrollHeight - rail.clientHeight,
+          overflowY: getComputedStyle(rail).overflowY,
+          buttonCount: buttons.length,
+          allWithin,
+          text: document.getElementById('phase-list').textContent
+        };
+      });
+      assert.ok(railState.overflow <= 1, `phase-rail must not overflow at ${viewport.width}x${viewport.height}: ${railState.overflow}`);
+      assert.equal(railState.overflowY, 'hidden', `phase-rail overflow-y must stay hidden for the standard phase count at ${viewport.width}x${viewport.height}`);
+      assert.equal(railState.buttonCount, 8, '標準フローは8フェーズであること');
+      assert.ok(railState.allWithin, `all phase buttons must stay within the rail bounds at ${viewport.width}x${viewport.height}`);
+      assert.ok(!railState.text.includes('HP無料制作の商談という認識をそろえ'), '左フェーズ一覧に目的（本文プレビュー）が表示されていないこと');
+    }
+    await page.setViewportSize({ width: 1440, height: 900 });
+
+    // ===== 商談実行画面（中央）：SCRIPT_MINIMAL_UI 要件 =====
     const centerState = await page.evaluate(() => {
       const visible = el => !!el && (el.checkVisibility ? el.checkVisibility() : el.offsetParent !== null);
       return {
@@ -135,6 +162,55 @@ test('FS UI レイアウト・簡略化のスモークテスト', async () => {
     await page.waitForFunction(() => !document.getElementById('predicted-objections').textContent.includes('メモを入力して'));
     const aiResultText = await page.evaluate(() => document.getElementById('predicted-objections').textContent);
     assert.ok(aiResultText.trim().length > 0, 'AI整理して保存を押すとAI整理結果が表示されること');
+
+    // ===== アウト即時相談：空文字/「」ではpopupを開かないこと =====
+    await page.setViewportSize({ width: 1280, height: 800 });
+    for (const invalidValue of ['', '「」', '　', '。、']) {
+      await page.fill('#quick-objection-input', invalidValue);
+      await page.click('#quick-objection-form button[type=submit]');
+      await page.waitForTimeout(150);
+      const invalidState = await page.evaluate(() => ({
+        popupHidden: document.getElementById('quick-objection-popup').hidden,
+        hintHidden: document.getElementById('quick-objection-inline-hint').hidden,
+        hintText: document.getElementById('quick-objection-inline-hint').textContent
+      }));
+      assert.equal(invalidState.popupHidden, true, `無効な入力(${JSON.stringify(invalidValue)})ではpopupを開かないこと`);
+      assert.equal(invalidState.hintHidden, false, `無効な入力(${JSON.stringify(invalidValue)})では入力を促す小さな案内を表示すること`);
+      assert.equal(invalidState.hintText, 'アウト内容を入力してください');
+    }
+
+    // ===== アウト即時相談：候補カードは中央カラムのdocument flow内に展開し、本文・右メモへ重ならないこと =====
+    // 直前の無効入力ループで表示された案内文を消してから基準位置を測る
+    await page.fill('#quick-objection-input', '');
+    await page.waitForTimeout(150);
+    const beforeScriptTop = await page.evaluate(() => document.getElementById('base-script').getBoundingClientRect().top);
+    await page.fill('#quick-objection-input', '無料なのが怪しいと言われた');
+    await page.click('#quick-objection-form button[type=submit]');
+    await page.waitForFunction(() => document.getElementById('quick-objection-popup').hidden === false);
+    const popupState = await page.evaluate(() => {
+      const rectsOverlap = (a, b) => !(a.right <= b.left || b.right <= a.left || a.bottom <= b.top || b.bottom <= a.top);
+      const popup = document.getElementById('quick-objection-popup').getBoundingClientRect();
+      const script = document.getElementById('base-script').getBoundingClientRect();
+      const note = document.querySelector('.note-column').getBoundingClientRect();
+      return {
+        position: getComputedStyle(document.getElementById('quick-objection-popup')).position,
+        candidateCount: document.querySelectorAll('#quick-objection-candidates .quick-objection-candidate').length,
+        overlapsScript: rectsOverlap(popup, script),
+        overlapsNote: rectsOverlap(popup, note),
+        scriptTop: script.top
+      };
+    });
+    assert.notEqual(popupState.position, 'absolute', 'アウト候補カードはposition:absoluteで重ねないこと');
+    assert.notEqual(popupState.position, 'fixed', 'アウト候補カードはposition:fixedで重ねないこと');
+    assert.ok(popupState.candidateCount <= 3, `候補は最大3件であること（実際:${popupState.candidateCount}）`);
+    assert.equal(popupState.overlapsScript, false, 'アウト候補カードが基本スクリプト本文へ重ならないこと');
+    assert.equal(popupState.overlapsNote, false, 'アウト候補カードが右側の商談メモへ重ならないこと');
+    assert.ok(popupState.scriptTop > beforeScriptTop + 20, 'popup表示時は候補カードの高さ分だけ本文が下へ押し下げられること');
+
+    await page.click('#quick-objection-close');
+    await page.waitForTimeout(150);
+    const closedScriptTop = await page.evaluate(() => document.getElementById('base-script').getBoundingClientRect().top);
+    assert.ok(Math.abs(closedScriptTop - beforeScriptTop) <= 2, 'popupを閉じると本文が元の位置へ戻ること');
 
     // ===== 商談終了モーダル：見切れなし =====
     await page.click('#finish-button');

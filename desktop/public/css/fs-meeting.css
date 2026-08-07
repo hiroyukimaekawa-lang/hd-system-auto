@@ -144,12 +144,30 @@ body.fs-meeting-active .note-column{padding-bottom:64px}
 
 .assist-view.active .assist-grid{flex:1;min-height:0;display:grid;grid-template-columns:260px minmax(400px,1fr) 400px;overflow:hidden}
 body.fs-meeting-active .assist-view.active .assist-grid{grid-template-columns:minmax(210px,250px) minmax(520px,1fr) minmax(320px,380px)}
-.assist-view.active .phase-rail,.assist-view.active .script-panel,.assist-view.active .note-column{min-height:0;overflow-y:auto}
-/* 幅の狭いフローでもフェーズ名が切れないようにする */
-.assist-view.active .phase-rail{overflow-x:hidden;padding:22px 16px}
-.assist-view.active .phase-rail button div{min-width:0}
-.assist-view.active .phase-rail button small{width:auto;max-width:100%}
-.assist-view.active .phase-rail button b{overflow-wrap:anywhere}
+.assist-view.active .script-panel,.assist-view.active .note-column{min-height:0;overflow-y:auto}
+
+/* ===== 左フェーズ一覧：番号＋タイトルだけをコンパクト表示し、内部スクロールを禁止する =====
+   標準の8〜10フェーズは常に1画面へ全件表示する（目的・説明・確認事項・本文プレビューは表示しない） */
+.assist-view.active .phase-rail{overflow-x:hidden;overflow-y:hidden;min-height:0;padding:12px 10px 10px;display:flex;flex-direction:column}
+.assist-view.active .phase-rail .eyebrow{flex:0 0 auto;font-size:9px}
+.assist-view.active .phase-rail h2{flex:0 0 auto;font-size:13px;font-weight:700;margin:2px 0 6px}
+.assist-view.active .phase-rail #phase-list{flex:1 1 auto;min-height:0;display:grid;grid-template-rows:repeat(var(--phase-count,8),minmax(0,1fr));gap:3px}
+.assist-view.active .phase-rail .phase-group{display:contents}
+.assist-view.active .phase-rail .group-title{min-height:0;padding:2px 7px;align-items:center}
+.assist-view.active .phase-rail .group-title span{font-size:10px}
+.assist-view.active .phase-rail .group-title b{font-size:11px}
+.assist-view.active .phase-rail button{min-height:0;padding:5px 7px;display:grid;grid-template-columns:20px minmax(0,1fr);align-items:center;gap:5px;border-radius:7px}
+.assist-view.active .phase-rail button.subphase{padding:5px 7px 5px 14px}
+.assist-view.active .phase-rail button>span{font-size:10px;margin:0}
+.assist-view.active .phase-rail button div{min-width:0;display:block}
+/* 目的プレビュー（small）は左一覧では非表示。番号＋タイトルのみ表示する */
+.assist-view.active .phase-rail button small{display:none}
+.assist-view.active .phase-rail button b{font-size:clamp(10.5px,.8vw,12.5px);line-height:1.2;font-weight:700;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;white-space:normal}
+.assist-view.active .phase-rail button.active{padding:5px 7px}
+/* 13フェーズ以上のみ例外的に内部スクロールを許可する */
+.assist-view.active .phase-rail.phase-rail-scroll{overflow-y:auto}
+.assist-view.active .phase-rail.phase-rail-scroll #phase-list{grid-template-rows:none;grid-auto-rows:min-content}
+
 .note-column{display:flex;flex-direction:column;border-left:1px solid var(--line);background:#eef0e9}
 .assist-view.active .assist-panel{border-left:0;overflow:visible}
 
@@ -311,7 +329,7 @@ body.fs-meeting-active.preinfo-hidden .deal-preinfo{display:none}
 .analysis-block .note-actions{margin-top:10px}
 
 /* ===== 中央スクリプト領域の簡略化：小さいタイトル・目的、読み上げスクリプトを主役にする ===== */
-.script-panel .meeting-phase-header{position:relative;padding:10px 0 14px;margin-bottom:14px;border-bottom:1px solid var(--line)}
+.script-panel .meeting-phase-header{padding:10px 0 14px;margin-bottom:14px;border-bottom:1px solid var(--line)}
 .meeting-phase-title-row{display:flex;align-items:baseline;gap:10px;flex-wrap:wrap}
 .meeting-phase-number{font-size:10px;margin:0}
 .script-panel h1.meeting-phase-title{margin:0;font:700 clamp(20px,2vw,26px)/1.35 Georgia,"Yu Mincho",serif}
@@ -322,21 +340,28 @@ body.fs-meeting-active.preinfo-hidden .deal-preinfo{display:none}
 .quick-objection input{min-width:0;flex:1 1 auto;padding:7px 10px;border:1px solid var(--line);border-radius:8px;background:var(--panel);font-size:12.5px}
 .quick-objection button{flex:0 0 auto;border:0;border-radius:8px;padding:7px 13px;font-size:12.5px;font-weight:700;cursor:pointer;white-space:nowrap}
 @media(max-width:1439px){.quick-objection{flex-basis:100%;max-width:none;margin-left:0;margin-top:4px}}
-.quick-objection-popup{position:absolute;right:0;top:100%;margin-top:8px;z-index:18;width:min(420px,92vw);max-width:calc(100vw - 24px);background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:14px 16px;display:grid;gap:10px}
+.quick-objection-inline-hint{display:block;margin:4px 0 0;color:#9d3927}
+.quick-objection-inline-hint[hidden]{display:none}
+
+/* アウト候補カードは中央カラムの通常document flow内に展開する（絶対配置/固定配置は禁止）。
+   カードの高さ分だけ下の基本スクリプトが押し下げられ、読み上げスクリプト・右メモへは重ならない。 */
+.quick-objection-popup{position:static;margin:10px 0 4px;width:100%;max-width:none;background:var(--panel);border:1px solid var(--line);border-radius:14px;box-shadow:var(--shadow);padding:14px 16px;display:grid;gap:10px}
+.quick-objection-popup[hidden]{display:none}
 .quick-objection-popup>header{display:flex;justify-content:space-between;align-items:baseline;gap:10px}
 .quick-objection-popup>header b{font-size:13px;font-weight:700;overflow-wrap:anywhere}
 .quick-objection-popup>header button{border:0;background:#e7e9e4;border-radius:8px;width:26px;height:26px;font-size:14px;cursor:pointer;flex:0 0 auto}
 #quick-objection-notice{margin:0}
-#quick-objection-candidates{display:grid;gap:8px;max-height:44vh;overflow-y:auto}
+#quick-objection-candidates{display:grid;gap:8px;max-height:300px;overflow-y:auto}
 .quick-objection-candidate{background:#fbfaf5;border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:6px}
 .quick-objection-candidate header{display:flex}
 .quick-objection-badge{font-size:10px;font-weight:800;padding:3px 9px;border-radius:999px;background:#e8eee8;color:var(--green)}
-.quick-objection-candidate p{margin:0;font-size:13px;line-height:1.55;overflow-wrap:anywhere}
-.quick-objection-candidate button{border:1px solid #cbd1c9;background:#fff;padding:7px;border-radius:7px;color:var(--green);font-weight:700;cursor:pointer;font-size:12px}
+.quick-objection-candidate-text{margin:0;font-size:13px;line-height:1.55;overflow-wrap:anywhere;display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:3;overflow:hidden}
+.quick-objection-candidate-text.expanded{display:block;overflow:visible}
+.quick-objection-expand{justify-self:start;border:0;background:none;padding:0;color:var(--green);font-size:11.5px;font-weight:700;text-decoration:underline;cursor:pointer}
+.quick-objection-candidate button:not(.quick-objection-expand){border:1px solid #cbd1c9;background:#fff;padding:7px;border-radius:7px;color:var(--green);font-weight:700;cursor:pointer;font-size:12px}
 .quick-objection-candidate button.used{background:#dff0e8}
 .quick-objection-actions{display:flex;justify-content:flex-end}
 .quick-objection-actions button{border:0;border-radius:8px;padding:7px 13px;font-size:12px;font-weight:700;cursor:pointer}
-@media(max-width:640px){.quick-objection-popup{right:0;left:0;width:auto;margin-left:0}}
 .script-panel h3.script-section-label{font-size:12px;font-weight:700;margin:0 0 10px;display:flex;align-items:center;gap:8px}
 .script-panel h3.script-section-label span{font:600 10px sans-serif;background:#dbeee5;color:#246957;padding:4px 7px;border-radius:20px}
 /* 確認事項・次へ進む条件・使用禁止表現・戻る場所は商談実行画面では非表示（データは保持しテンプレ管理画面に残す） */

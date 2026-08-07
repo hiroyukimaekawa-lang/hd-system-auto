@@ -15,6 +15,7 @@ import { LocalSqliteSalesMaterialRepository } from '../src/repositories/sqlite-s
 import { analyzeMeeting, ANALYSIS_DISCLAIMER, MEETING_PRODUCTS } from '../src/meeting-analysis.js';
 import { parseScriptStructure, optionalLlmStructure } from '../src/script-structure-parser.js';
 import { getLlmProvider } from '../src/llm-provider.js';
+import { handleIsListGenerationRequest } from '../src/is/list-generation/is-list-generation-routes.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 loadEnv(path.join(root, '.env'));
@@ -31,6 +32,7 @@ const phaseTagMap = talkScriptId => {
 };
 // 資料の権限。将来ログイン利用者のロールへ差し替える。
 const viewerOf = url => ['customer','fs','admin'].includes(url.searchParams.get('viewer')) ? url.searchParams.get('viewer') : 'fs';
+const progressConfig = JSON.parse(fs.readFileSync(path.join(root, 'config', 'fs-sales', 'progress-statuses.json'), 'utf8'));
 const obsidianConfig = JSON.parse(fs.readFileSync(path.join(root, 'config', 'sales-assist', 'obsidian.json'), 'utf8'));
 const obsidian = obsidianConfig.enabled ? new ObsidianSalesArchive(obsidianConfig) : null;
 const syncSession = id => { if (obsidian) obsidian.syncSession(sales,id); };
@@ -133,6 +135,12 @@ async function chat(message) {
 const server = http.createServer(async (request, response) => {
   try {
     if (request.method === 'GET' && request.url === '/api/health') return json(response, 200, { ok: true });
+    // HD AIアシスタント > IS > リスト生成 > 自動取得。FSのルーティングには関与しない。
+    if (request.url.startsWith('/api/is/list-generation/')) {
+      const body = ['POST', 'PUT'].includes(request.method) ? await readBody(request) : {};
+      const result = await handleIsListGenerationRequest(request.method, request.url, body);
+      if (result) return json(response, result[0], result[1]);
+    }
     if (request.method === 'GET' && request.url.startsWith('/api/sales/config')) {
       const url=new URL(request.url,'http://127.0.0.1');
       return json(response, 200, { ok:true, phases:sales.phases(url.searchParams.get('talkScriptId')||undefined), objections:sales.objections() });
@@ -178,6 +186,19 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && /^\/api\/fs\/deals\/[^/?]+$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const detail=sales.deal(id); return json(response,detail?200:404,{ ok:Boolean(detail), ...(detail||{ text:'案件が見つかりません' }) }); }
     if (request.method === 'PUT' && /^\/api\/fs\/deals\/[^/?]+$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const target=sales.deal(id); const updated=target?.preparation?sales.editPreparation(target.preparation.id,body):null; if(updated)syncPreparation(updated.id); return json(response,updated?200:404,{ ok:Boolean(updated), preparation:updated }); }
     if (request.method === 'DELETE' && /^\/api\/fs\/deals\/[^/?]+$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const removed=sales.deleteDeal(id,{ actor:'FS' }); return json(response,removed?200:404,{ ok:Boolean(removed), removed:removed&&{ ...removed, ...removeArchive(removed) }, ...(removed?{}:{ text:'案件が見つかりません' }) }); }
+    // ===== 2軸進捗（申込・審査進捗／案件進捗）。手動保存のみで、Googleカレンダーは一切触らない =====
+    if (request.method === 'GET' && request.url === '/api/fs/progress-config') { return json(response,200,{ ok:true, ...progressConfig }); }
+    if (request.method === 'GET' && /^\/api\/fs\/deals\/[^/?]+\/progress-history$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const history=sales.dealProgressHistory(id); return json(response,history?200:404,{ ok:Boolean(history), history:history||[], ...(history?{}:{ text:'案件が見つかりません' }) }); }
+    if (request.method === 'PUT' && /^\/api\/fs\/deals\/[^/?]+\/progress$/.test(request.url)) {
+      const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]);
+      try {
+        const result=sales.setDealProgress(id,body);
+        if(!result) return json(response,404,{ ok:false, text:'案件が見つかりません' });
+        const target=sales.deal(id);
+        if(target?.session)syncSession(target.session.id); else if(target?.preparation)syncPreparation(target.preparation.id);
+        return json(response,200,{ ok:true, ...result });
+      } catch (error) { return json(response,400,{ ok:false, text:error.message }); }
+    }
     // ===== 原文メモ・商材・AI解析 =====
     if (request.method === 'GET' && /^\/api\/fs\/meetings\/[^/]+\/notes$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const notes=sales.notes(id); return json(response,notes?200:404,{ ok:Boolean(notes), notes:notes||[], products:notes?sales.meetingProducts(id):[], text:notes?undefined:'商談が見つかりません' }); }
     if (request.method === 'POST' && /^\/api\/fs\/meetings\/[^/]+\/notes$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); try { const note=sales.addNote(id,body); if(note)syncSession(id); return json(response,note?201:404,{ ok:Boolean(note), note, text:note?undefined:'商談が見つかりません' }); } catch (error) { return json(response,400,{ ok:false, text:error.message }); } }

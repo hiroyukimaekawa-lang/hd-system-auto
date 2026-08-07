@@ -11,6 +11,13 @@ const text = value => String(value || '').trim() || '未入力';
 const lines = values => values.length ? values.map(value => `- ${value}`).join('\n') : '- なし';
 
 const PRODUCT_LABELS = { enepal:'エネパル', amex:'AMEX', smbc_business_owners:'三井住友ビジネスオーナーズ', acom_ac_mastercard:'アコム（ACマスターカード）', none:'今回は商材提案なし' };
+// 2軸進捗（案件進捗／申込・審査進捗）は同じA/Bコードでも別物として、必ずコード＋名称で書き出す
+function progressSection(store, dealId) {
+  const summary = store.dealProgressSummary?.(dealId) || {};
+  const dealStage = summary.dealStageCode ? `${summary.dealStageCode}｜${summary.dealStageLabel}` : '未設定';
+  const application = summary.applicationProgressCode ? `${summary.applicationProgressCode}｜${summary.applicationProgressLabel}` : '未設定';
+  return `- 案件進捗：${dealStage}\n- 申込・審査進捗：${application}`;
+}
 const NOTE_SOURCE_LABELS = { during_meeting:'商談中', closing_form:'終了時追記', post_meeting:'商談後追記' };
 // AI解析は補助情報であることを明記して保存する（商談結果・ヨミとしては扱わない）
 function analysisSection(store, sessionId) {
@@ -103,6 +110,10 @@ module: FS_商談管理
 - 次の動き：${text(session.next_action)}
 - 次回日：${text(session.next_action_at)}
 
+## 進捗
+
+${progressSection(store, session.deal_id)}
+
 ## ISからの引き継ぎ
 
 ${text(session.handoff)}
@@ -189,6 +200,10 @@ module: FS_商談準備
 - 使用スクリプト：${text(script?.name || item.talk_script_id)}
 - 次の動き：${text(item.next_action)}
 - 次回日：${text(item.next_action_at)}
+
+## 進捗
+
+${progressSection(store, item.deal_id)}
 
 ## ISからの引き継ぎ
 

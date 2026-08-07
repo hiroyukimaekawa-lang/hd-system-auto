@@ -1,0 +1,70 @@
+{
+  "version": "1.0.0",
+  "progressAxes": [
+    {
+      "id": "application_progress",
+      "label": "申込・審査進捗",
+      "statuses": [
+        {
+          "code": "AA",
+          "label": "課金（上位店より承認）",
+          "nextActionHint": ""
+        },
+        {
+          "code": "A",
+          "label": "申し込み書⭕️＋審査通過⭕️",
+          "nextActionHint": "基本次回アクションはヒアリングMTG調整"
+        },
+        {
+          "code": "B",
+          "label": "申し込み書⭕️＋各商材お申し込み⭕️（審査待ち）",
+          "nextActionHint": "アクションは基本待ち"
+        },
+        {
+          "code": "C",
+          "label": "申し込み書⭕️＋各種商材お申し込み❌",
+          "nextActionHint": "基本ここでのアクションは日程調整だけ／時間切れで口頭YES"
+        },
+        {
+          "code": "D",
+          "label": "HD申し込み書❌＋各種商材申し込み❌",
+          "nextActionHint": ""
+        }
+      ]
+    },
+    {
+      "id": "deal_stage",
+      "label": "案件進捗",
+      "statuses": [
+        {
+          "code": "A",
+          "label": "エントリー済み"
+        },
+        {
+          "code": "B",
+          "label": "素材回収待ち"
+        },
+        {
+          "code": "C",
+          "label": "申込書回収待ち"
+        },
+        {
+          "code": "D",
+          "label": "商談済み回答待ち"
+        },
+        {
+          "code": "E",
+          "label": "商談"
+        },
+        {
+          "code": "XA",
+          "label": "プレゼン失注（決裁者）"
+        },
+        {
+          "code": "XB",
+          "label": "プレゼン失注（非決裁者）"
+        }
+      ]
+    }
+  ]
+}
