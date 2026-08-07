@@ -10,6 +10,7 @@ import { createJobId, JobQueue } from '../src/queue.js';
 import { SerialWorker } from '../src/worker.js';
 import { SalesAssistStore } from '../src/sales-assist.js';
 import { ObsidianSalesArchive } from '../src/obsidian-sales-archive.js';
+import { ObsidianHdArchitecture } from '../src/obsidian-hd-architecture.js';
 import { LocalSqliteSalesMaterialRepository } from '../src/repositories/sqlite-sales-material-repository.js';
 import { analyzeMeeting, ANALYSIS_DISCLAIMER, MEETING_PRODUCTS } from '../src/meeting-analysis.js';
 
@@ -33,6 +34,14 @@ const obsidian = obsidianConfig.enabled ? new ObsidianSalesArchive(obsidianConfi
 const syncSession = id => { if (obsidian) obsidian.syncSession(sales,id); };
 const syncPreparation = id => { if (obsidian) obsidian.syncPreparation(sales,id); };
 const syncLibraries = () => { if (obsidian) obsidian.syncLibraries(sales); };
+// IS/FS/CSの親ノート・機能ノートを不足分だけ作成する（起動のたびに全文上書きはしない）
+if (obsidian) {
+  try {
+    new ObsidianHdArchitecture({ archive:obsidian, store:sales, config:obsidianConfig.architecture }).ensureStructure();
+  } catch (error) {
+    console.error(`Obsidian IA構造の初期化に失敗しました: ${error.message}`);
+  }
+}
 // 案件を削除したら、書き出し済みのObsidianノートも消す（失敗しても案件削除は完了扱い）
 // AI解析。失敗しても商談記録は残し、status=failed として返す（商談終了は妨げない）。
 function runAnalysis(meetingId, body = {}) {
