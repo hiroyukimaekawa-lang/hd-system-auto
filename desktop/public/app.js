@@ -107,12 +107,13 @@ function renderCatalog(){
 }
 function scriptCard(item,admin=false){
   const department=catalog.departments.find(value=>value.id===item.department_id);
-  return `<article class="script-card"><header><span>${department?.name||item.department_id}</span><em class="status ${item.status}">${statusLabel(item.status)}</em></header><h2>${item.name}</h2><p>${item.products.join('＋')||'商材未登録'}</p><dl><div><dt>対象顧客</dt><dd>${item.customer_type||'—'}</dd></div><div><dt>バージョン</dt><dd>${item.version||'—'}</dd></div><div><dt>最終更新日</dt><dd>${item.updated_at?.slice(0,10)||'—'}</dd></div><div><dt>フェーズ数</dt><dd>${item.phase_count||0}</dd></div><div><dt>使用回数</dt><dd>${item.use_count||0}</dd></div></dl><footer>${admin?`<button class="secondary" data-script-preview="${item.id}">確認</button><button class="secondary" data-script-rename="${item.id}">タイトル編集</button><button class="primary" data-script-edit="${item.id}" ${item.status==='unregistered'?'disabled':''}>内容編集</button>`:`<button class="secondary" data-script-preview="${item.id}">内容確認</button><button class="primary" data-script-start="${item.id}" ${item.status!=='published'?'disabled':''}>${item.status==='published'?'商談を開始':'利用できません'}</button>`}</footer></article>`;
+  return `<article class="script-card"><header><span>${department?.name||item.department_id}</span><em class="status ${item.status}">${statusLabel(item.status)}</em></header><h2>${item.name}</h2><p>${item.products.join('＋')||'商材未登録'}</p><dl><div><dt>対象顧客</dt><dd>${item.customer_type||'—'}</dd></div><div><dt>バージョン</dt><dd>${item.version||'—'}</dd></div><div><dt>最終更新日</dt><dd>${item.updated_at?.slice(0,10)||'—'}</dd></div><div><dt>フェーズ数</dt><dd>${item.phase_count||0}</dd></div><div><dt>使用回数</dt><dd>${item.use_count||0}</dd></div></dl><footer>${admin?`<button class="secondary" data-script-preview="${item.id}">確認</button><button class="secondary" data-script-rename="${item.id}">タイトル編集</button><button class="secondary" data-script-flow="${item.id}">フロー編集</button><button class="primary" data-script-edit="${item.id}" ${item.status==='unregistered'?'disabled':''}>内容編集</button>`:`<button class="secondary" data-script-preview="${item.id}">内容確認</button><button class="primary" data-script-start="${item.id}" ${item.status!=='published'?'disabled':''}>${item.status==='published'?'商談を開始':'利用できません'}</button>`}</footer></article>`;
 }
 function bindScriptButtons(){
   $$('[data-script-start]').forEach(button=>button.addEventListener('click',()=>selectTalkScript(button.dataset.scriptStart)));
   $$('[data-script-preview]').forEach(button=>button.addEventListener('click',()=>openScriptPreview(button.dataset.scriptPreview)));
   $$('[data-script-rename]').forEach(button=>button.addEventListener('click',()=>openRenameScript(button.dataset.scriptRename)));
+  $$('[data-script-flow]').forEach(button=>button.addEventListener('click',()=>openScriptFlow(catalog.scripts.find(item=>item.id===button.dataset.scriptFlow))));
   $$('[data-script-edit]').forEach(button=>button.addEventListener('click',async()=>{const script=catalog.scripts.find(item=>item.id===button.dataset.scriptEdit);await loadScriptPhases(button.dataset.scriptEdit);renderPhases();$('#phase-editor-title').textContent=`${script?.name||'トークスクリプト'}・フェーズ編集`;$('#phase-editor').hidden=false;$('#phase-editor').scrollIntoView({behavior:'smooth'});editPhase(config.phases[0]?.id)}));
 }
 function openRenameScript(id){
@@ -148,7 +149,107 @@ $('#rename-script-form').addEventListener('submit',async event=>{
     $('#rename-script-dialog').close();toast('トークスクリプト名を保存しました');
   }catch(error){toast(error.message)}
 });
-$('#open-create-script').addEventListener('click',()=>{$('#create-script-form').reset();$('#create-script-form').elements.customerType.value='店舗オーナー・小規模事業者';$('#create-script-dialog').showModal();$('#create-script-form').elements.name.focus()});
+// ===== トークスクリプトを商談フローごと新規作成・編集する =====
+let flowPhases=[],flowEditingId=null;
+const flowLine=value=>String(value||'').split('\n').map(v=>v.trim()).filter(Boolean);
+function flowPhaseRow(phase,index){
+  const move=(from,to)=>{if(to<0||to>=flowPhases.length)return;readFlowPhases();const [item]=flowPhases.splice(from,1);flowPhases.splice(to,0,item);renderFlowPhases()};
+  const up=el('button',{type:'button',text:'↑'});up.addEventListener('click',()=>move(index,index-1));
+  const down=el('button',{type:'button',text:'↓'});down.addEventListener('click',()=>move(index,index+1));
+  const remove=el('button',{type:'button',class:'danger',text:'削除'});
+  remove.addEventListener('click',()=>{readFlowPhases();flowPhases.splice(index,1);renderFlowPhases()});
+  const field=(label,key,{tag='input',rows,placeholder,wide,value}={})=>{
+    const control=tag==='textarea'?el('textarea',{rows:String(rows||3),placeholder:placeholder||''}):el('input',{placeholder:placeholder||''});
+    control.value=value??'';control.dataset.flowField=key;
+    return el('label',{class:wide?'wide':''},[document.createTextNode(label),control]);
+  };
+  const head=el('div',{class:'flow-phase-head'},[
+    el('span',{class:'flow-index',text:`フェーズ ${index+1}`}),
+    el('div',{class:'flow-move'},[up,down,remove])
+  ]);
+  const grid=el('div',{class:'flow-grid'},[
+    field('記号','group',{placeholder:'①',value:phase.group}),
+    field('フェーズ名','name',{placeholder:'例：前提のすり合わせと本日のアジェンダ',value:phase.name}),
+    field('このフェーズの目的','goal',{placeholder:'例：認識をそろえ決裁権を確認する',value:phase.goal}),
+    field('読み上げスクリプト','script',{tag:'textarea',rows:8,wide:true,placeholder:'商談で読み上げる本文',value:phase.script}),
+    field('確認事項（1行1項目）','questions',{tag:'textarea',rows:4,placeholder:'認識のズレがない\n決裁権を確認した',value:(phase.questions||[]).join('\n')}),
+    field('次へ進む条件','transition',{tag:'textarea',rows:4,placeholder:'例：認識が合えば②へ進む',value:phase.transition}),
+    field('禁止表現（1行1項目）','prohibited',{tag:'textarea',rows:3,wide:true,placeholder:'絶対に安くなる',value:(phase.prohibited||[]).join('\n')})
+  ]);
+  return el('section',{class:'flow-phase'},[head,grid]);
+}
+function renderFlowPhases(){
+  const list=$('#flow-phase-list');list.textContent='';
+  if(!flowPhases.length)list.append(el('p',{class:'muted small',text:'「＋ フェーズを追加」または「現在の商談フローを読み込む」から始めてください。'}));
+  flowPhases.forEach((phase,index)=>list.append(flowPhaseRow(phase,index)));
+  $('#flow-count').textContent=`${flowPhases.length}フェーズ`;
+}
+// 画面の入力値を配列へ取り込む（並べ替え・保存の前に必ず呼ぶ）
+function readFlowPhases(){
+  flowPhases=[...$('#flow-phase-list').querySelectorAll('.flow-phase')].map((row,index)=>{
+    const value=key=>row.querySelector(`[data-flow-field="${key}"]`)?.value||'';
+    return {
+      id:flowPhases[index]?.id,
+      group:value('group').trim()||`${index+1}`,
+      name:value('name').trim(),
+      goal:value('goal').trim(),
+      script:value('script'),
+      questions:flowLine(value('questions')),
+      transition:value('transition').trim(),
+      prohibited:flowLine(value('prohibited'))
+    };
+  });
+  return flowPhases;
+}
+function openScriptFlow(script){
+  const form=$('#script-flow-form');form.reset();
+  flowEditingId=script?.id||null;
+  $('#script-flow-title').textContent=script?`${script.name}のフローを編集`:'トークスクリプトを新規作成';
+  $('#script-flow-message').textContent='';
+  if(script){
+    form.elements.name.value=script.name||'';
+    form.elements.products.value=(script.products||[]).join('、');
+    form.elements.customerType.value=script.customer_type||'';
+    form.elements.version.value=script.version||'';
+  }else{
+    form.elements.customerType.value='店舗オーナー・小規模事業者';
+    form.elements.version.value=new Date().toLocaleDateString('ja-JP');
+  }
+  flowPhases=[];renderFlowPhases();
+  $('#script-flow-dialog').showModal();
+  if(script)loadFlowFrom(script.id);
+}
+async function loadFlowFrom(talkScriptId){
+  try{
+    const data=await api(`/api/sales/config?talkScriptId=${encodeURIComponent(talkScriptId)}`);
+    flowPhases=data.phases.map(phase=>({group:phase.group_name,name:phase.name,goal:phase.goal,script:phase.base_script,questions:phase.required_questions||[],transition:phase.transition_conditions,prohibited:phase.prohibited_phrases||[]}));
+    renderFlowPhases();
+  }catch(error){$('#script-flow-message').textContent=error.message}
+}
+$('#flow-add-phase').addEventListener('click',()=>{readFlowPhases();flowPhases.push({group:`${flowPhases.length+1}`,name:'',goal:'',script:'',questions:[],transition:'',prohibited:[]});renderFlowPhases()});
+$('#flow-load-default').addEventListener('click',()=>loadFlowFrom($('#preparation-script-select').value||selectedScript));
+$('#close-script-flow').addEventListener('click',()=>$('#script-flow-dialog').close());
+$('#cancel-script-flow').addEventListener('click',()=>$('#script-flow-dialog').close());
+$('#script-flow-form').addEventListener('submit',async event=>{
+  event.preventDefault();
+  const form=event.currentTarget,meta=Object.fromEntries(new FormData(form));
+  const phases=readFlowPhases();
+  if(!phases.length)return void($('#script-flow-message').textContent='フェーズを1つ以上追加してください');
+  const missing=phases.findIndex(phase=>!phase.name);
+  if(missing>=0)return void($('#script-flow-message').textContent=`フェーズ${missing+1}のフェーズ名を入力してください`);
+  $('#script-flow-message').textContent='保存しています…';
+  try{
+    let scriptId=flowEditingId;
+    if(scriptId)await api(`/api/sales/talk-scripts/${encodeURIComponent(scriptId)}`,{method:'PUT',body:JSON.stringify({name:meta.name,actor:'管理者'})});
+    else scriptId=(await api('/api/sales/talk-scripts',{method:'POST',body:JSON.stringify({...meta,actor:'管理者'})})).script.id;
+    const data=await api(`/api/sales/talk-scripts/${encodeURIComponent(scriptId)}/phases`,{method:'PUT',body:JSON.stringify({phases,version:meta.version,actor:'管理者'})});
+    catalog=await api('/api/sales/catalog');
+    renderAdminScripts();renderHomeTemplates();renderPreparationScriptSelector();
+    $('#script-flow-dialog').close();
+    toast(`${data.script.name}を${flowEditingId?'更新':'作成'}しました（${phases.length}フェーズ）`);
+  }catch(error){$('#script-flow-message').textContent=error.message}
+});
+$('#open-create-script').addEventListener('click',()=>openScriptFlow(null));
 $('#close-create-script').addEventListener('click',()=>$('#create-script-dialog').close());
 $('#create-script-form').addEventListener('submit',async event=>{
   event.preventDefault();
@@ -287,14 +388,10 @@ function preparationFocus(item){
   const results=[];
   const add=(id,reason)=>{if(!results.some(value=>value.id===id))results.push({id,reason})};
   if(/詳しく|不明|ほとんど|認識/.test(text))add('agenda','ISとの認識差をなくし、今日の進め方をそろえる');
-  if(/不要|SNS|Google|必要性/.test(text))add('hp_impression','HPが不要と感じる背景を切り分ける');
-  if(/売上|集客|客数|採用|人手|今後/.test(text))add('future','今後実現したい状態を具体化する');
-  if(/課題|背景|独立|店舗/.test(text))add('hearing','店舗の背景と未解決課題を深掘りする');
-  if(/予約|導線|公式|信用|情報|採用|集客/.test(text))add('hp_role','ヒアリング内容から顧客専用のHPの役割を提示する');
-  if(/品質|デザイン|事例/.test(text))add('examples','制作事例を見せて品質への肯定を取る');
-  if(/条件|無料|作りたい|興味/.test(text))add('test_closing','条件説明前にHP制作への仮合意を確認する');
+  if(/不要|SNS|Google|必要性|売上|集客|客数|採用|人手|今後|課題|背景|独立|店舗|品質|デザイン|事例/.test(text))add('hp_interest','HPへの印象と今後の展望を聞き、事例でクオリティへの肯定を取る');
+  if(/条件|無料|作りたい|興味/.test(text))add('company','HPが高額という前提を崩してから条件へ進む');
   if(/電気|料金|エネパル/.test(text))add('free_conditions','無料制作と電気切り替えの関係を正確に説明する');
-  if(!results.length){add('hp_impression','HPへの現在の印象を確認する');add('future','今後のお店の方向性を確認する');add('hp_role','この店舗に合うHPの役割を作る')}
+  if(!results.length){add('company','HPへの現在の印象を確認する');add('hp_interest','今後の展望と事例でクオリティへの肯定を取る');add('free_conditions','無料の座組と条件を正確に説明する')}
   return results.slice(0,4);
 }
 async function showDealDetail(dealId){
@@ -363,6 +460,106 @@ $('#cancel-prep-edit').addEventListener('click',resetPreparationForm);
 function resultSection(title,value){
   return el('section',{class:'result-block'},[el('h3',{text:title}),el('p',{text:String(value||'').trim()||'—'})]);
 }
+// 終了後も原文メモを追記・編集・論理削除でき、履歴を残す
+async function buildResultNotesSection(meetingId,dealId){
+  const section=el('section',{class:'result-block'},[el('h3',{text:'商談メモ（原文）'})]);
+  if(!meetingId){section.append(el('p',{text:'この案件には商談記録がありません。'}));return section}
+  const list=el('div',{class:'note-list'});
+  const reload=async()=>{
+    try{
+      const data=await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/notes`);
+      renderNoteList(list,data.notes||[],{
+        onEdit:note=>openNoteEditor(meetingId,note,()=>showResultDetail(dealId)),
+        onDelete:async note=>{
+          if(!window.confirm('このメモを削除しますか？（記録は残り、一覧から非表示になります）'))return;
+          try{await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/notes/${encodeURIComponent(note.id)}`,{method:'DELETE'});toast('メモを削除しました');showResultDetail(dealId)}catch(error){toast(error.message)}
+        },
+        onHistory:note=>openNoteHistory(meetingId,note)
+      });
+    }catch(error){list.textContent='';list.append(el('p',{class:'muted small',text:error.message}))}
+  };
+  await reload();
+  const input=el('textarea',{rows:'2',placeholder:'商談後の追記を入力'});
+  const addButton=el('button',{class:'secondary',type:'button',text:'メモを追記'});
+  addButton.addEventListener('click',async()=>{
+    const content=input.value.trim();if(!content)return toast('追記するメモを入力してください');
+    try{await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/notes`,{method:'POST',body:JSON.stringify({content,source:'post_meeting',author:'FS'})});input.value='';toast('メモを追記しました');showResultDetail(dealId)}catch(error){toast(error.message)}
+  });
+  section.append(list,el('div',{class:'note-add'},[input,addButton]));
+  return section;
+}
+async function buildResultProductSection(meetingId,dealId){
+  const section=el('section',{class:'result-block'},[el('h3',{text:'今回扱った商材'})]);
+  if(!meetingId){section.append(el('p',{text:'—'}));return section}
+  const container=el('div',{class:'product-checks'});
+  let selected=[];
+  try{selected=(await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/notes`)).products||[]}catch{}
+  renderProductChecks(container,selected);
+  const save=el('button',{class:'secondary',type:'button',text:'商材を保存'});
+  save.addEventListener('click',async()=>{
+    const products=[...container.querySelectorAll('input[type=checkbox]')].filter(box=>box.checked).map(box=>box.value);
+    try{await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/products`,{method:'PUT',body:JSON.stringify({products,actor:'FS'})});toast('商材を保存しました');showResultDetail(dealId)}catch(error){toast(error.message)}
+  });
+  section.append(container,save);
+  return section;
+}
+async function buildResultAnalysisSection(meetingId,dealId){
+  const section=el('section',{class:'result-block analysis-block'},[el('h3',{text:'AIによる整理結果'})]);
+  if(!meetingId){section.append(el('p',{text:'—'}));return section}
+  const status=el('div',{class:'analysis-status'}),body=el('div',{class:'analysis-body'});
+  let current=null;
+  try{current=(await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/analysis`)).analysis}catch{}
+  renderAnalysis(status,body,current);
+  const run=el('button',{class:'secondary',type:'button',text:'AI解析を更新'});
+  run.addEventListener('click',async()=>{
+    // 担当者の修正版がある場合は、上書きしてよいか必ず確認する
+    if(current?.edited_text&&!window.confirm('担当者が修正した解析結果があります。新しい解析を作成しますか？（修正版は履歴として残ります）'))return;
+    run.disabled=true;
+    try{const data=await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/analysis`,{method:'POST',body:JSON.stringify({actor:'FS'})});current=data.analysis;renderAnalysis(status,body,current);toast(data.text||'AI解析を更新しました')}
+    catch(error){toast(error.message)}finally{run.disabled=false}
+  });
+  const edit=el('button',{class:'secondary',type:'button',text:'解析結果を編集'});
+  edit.addEventListener('click',()=>{
+    if(!current)return toast('先にAI解析を作成してください');
+    openAnalysisEditor(meetingId,current,()=>showResultDetail(dealId));
+  });
+  section.append(status,body,el('small',{class:'muted analysis-disclaimer',text:'AI解析は原文メモをもとにした補助情報です。重要な判断は原文と実際の確認内容をもとに行ってください。'}),el('div',{class:'note-actions'},[run,edit]));
+  return section;
+}
+let noteEditorTarget=null,analysisEditorTarget=null;
+function openNoteEditor(meetingId,note,onSaved){
+  noteEditorTarget={meetingId,noteId:note.id,onSaved};
+  $('#note-edit-input').value=note.content;
+  $('#note-edit-dialog').showModal();
+}
+$('#note-edit-form').addEventListener('submit',async event=>{
+  if(event.submitter?.value!=='save'||!noteEditorTarget)return;
+  const target=noteEditorTarget;noteEditorTarget=null;
+  try{await api(`/api/fs/meetings/${encodeURIComponent(target.meetingId)}/notes/${encodeURIComponent(target.noteId)}`,{method:'PATCH',body:JSON.stringify({content:$('#note-edit-input').value,actor:'FS'})});toast('メモを更新しました');target.onSaved?.()}catch(error){toast(error.message)}
+});
+async function openNoteHistory(meetingId,note){
+  const list=$('#note-history-list');list.textContent='';
+  try{
+    const data=await api(`/api/fs/meetings/${encodeURIComponent(meetingId)}/notes/${encodeURIComponent(note.id)}/revisions`);
+    if(!data.revisions.length)list.append(el('p',{class:'muted small',text:'編集履歴はありません。'}));
+    for(const revision of data.revisions)list.append(el('article',{class:'note-item'},[
+      el('small',{text:`${noteTime(revision.edited_at)}｜${revision.edited_by||'担当者'}`}),
+      el('p',{class:'note-before',text:`変更前：${revision.content_before}`}),
+      el('p',{class:'note-body',text:`変更後：${revision.content_after}`})
+    ]));
+  }catch(error){list.append(el('p',{class:'muted small',text:error.message}))}
+  $('#note-history-dialog').showModal();
+}
+function openAnalysisEditor(meetingId,analysis,onSaved){
+  analysisEditorTarget={meetingId,analysisId:analysis.id,onSaved};
+  $('#analysis-edit-input').value=analysis.edited_text||analysis.generated_text||'';
+  $('#analysis-edit-dialog').showModal();
+}
+$('#analysis-edit-form').addEventListener('submit',async event=>{
+  if(event.submitter?.value!=='save'||!analysisEditorTarget)return;
+  const target=analysisEditorTarget;analysisEditorTarget=null;
+  try{await api(`/api/fs/meetings/${encodeURIComponent(target.meetingId)}/analysis/${encodeURIComponent(target.analysisId)}`,{method:'PATCH',body:JSON.stringify({text:$('#analysis-edit-input').value,actor:'FS'})});toast('解析結果を保存しました（担当者修正済み）');target.onSaved?.()}catch(error){toast(error.message)}
+});
 async function showResultDetail(dealId){
   let detail;
   try{detail=await api(`/api/fs/deals/${encodeURIComponent(dealId)}`)}catch(error){return toast(error.message)}
@@ -372,12 +569,14 @@ async function showResultDetail(dealId){
   $('#result-detail-meta').textContent=[deal.ownerName&&`${deal.ownerName}様`,deal.staffId&&`担当 ${deal.staffId}`,deal.finishedAt&&`商談日 ${dealDate(deal.finishedAt)}`,deal.status].filter(Boolean).join('｜');
   FsDealHeader.render({meta:$('#result-detail-header-meta'),links:$('#result-detail-header-links'),notes:$('#result-detail-header-notes')},deal);
   const body=$('#result-detail-body');body.textContent='';
-  const memos=el('section',{class:'result-block'},[el('h3',{text:'商談メモ'})]);
-  if(detail.memos?.length)for(const memo of detail.memos)memos.append(el('p',{class:'result-memo',text:`${dealDate(memo.created_at)}｜${memo.content}`}));
-  else memos.append(el('p',{text:'メモは記録されていません。'}));
-  body.append(
+  const meetingId=deal.meetingId||detail.session?.id||'';
+  const memos=await buildResultNotesSection(meetingId,dealId);
+  const analysisBlock=await buildResultAnalysisSection(meetingId,dealId);
+  const productBlock=await buildResultProductSection(meetingId,dealId);
+  body.append(...[
     resultSection('ISからの引き継ぎ',deal.handoff),
-    resultSection('商談結果',deal.result),
+    productBlock,
+    deal.result?resultSection('商談結果（旧データ・参考）',deal.result):null,
     resultSection('ヨミ',deal.forecast),
     resultSection('制作意思・言質',factText('commitment')),
     resultSection('提案商材',factText('proposed_products')||deal.products),
@@ -385,14 +584,16 @@ async function showResultDetail(dealId){
     resultSection('残った懸念',deal.concerns||factText('log')),
     resultSection('次回アクション',[deal.nextAction,dealDate(deal.nextActionAt,'')].filter(Boolean).join('｜')),
     memos,
+    analysisBlock,
     resultSection('商談結果メモ',detail.session?.notes),
     resultSection('担当者の振り返り',deal.reflection)
-  );
+  ].filter(Boolean));
   const handoffButton=el('button',{class:'secondary',type:'button',text:'進捗管理FMTを確認'});
   handoffButton.addEventListener('click',async()=>{$('#handoff-output').value=await buildHandoffFormat(detail.session,facts);$('#result-dialog').close();$('#handoff-dialog').showModal()});
   body.append(el('div',{class:'actions'},[handoffButton]));
   $('#result-dialog').showModal();
 }
+$('#close-note-history').addEventListener('click',()=>$('#note-history-dialog').close());
 $('#close-result').addEventListener('click',()=>$('#result-dialog').close());
 $('#close-result-bottom').addEventListener('click',()=>$('#result-dialog').close());
 $('#close-preparation').addEventListener('click',()=>$('#preparation-dialog').close());
@@ -428,7 +629,7 @@ function selectPhase(id){
   $('#phase-transition').textContent=currentPhase.transition_conditions;$('#prohibited').innerHTML=currentPhase.prohibited_phrases.map(item=>`<span>${item}</span>`).join('');$('#warning-box').hidden=!currentPhase.prohibited_phrases.length;
   $('#return-select').value=id;
   $('#hp-role').value=currentSession?.context_data?.hpRole||'';$('#session-notes').value=currentSession?.notes||'';
-  const rolePhase=['hp_role','hp_explanation','test_closing','lr_09','interview_phase_09'].includes(id);$('#context-fields').hidden=!rolePhase;$('#context-fields').classList.toggle('highlight-role',rolePhase);
+  const rolePhase=['hp_interest','lr_09','interview_phase_09'].includes(id);$('#context-fields').hidden=!rolePhase;$('#context-fields').classList.toggle('highlight-role',rolePhase);
   renderApplicationGuide();
   renderInterviewSection(id);
   renderReturnRecommendations();
@@ -458,8 +659,8 @@ function renderApplicationGuide(){
 }
 function renderReturnRecommendations(){
   const map={
-    test_closing:[['future','③-2 今後の展望'],['hearing','③-3 店舗ヒアリング'],['hp_role','③-4 HPの役割決定'],['hp_explanation','③-5 HP説明']],
-    free_conditions:[['free_conditions','④ 無料の仕組み・条件'],['test_closing','③-8 テストクロージング'],['hp_role','③-4 HPの役割決定']],
+    hp_interest:[['company','② 会社紹介・なぜ今HP'],['hp_interest','③ HPに対する興味付け']],
+    free_conditions:[['hp_interest','③ HPに対する興味付け'],['free_conditions','④ 条件ばらし']],
     application:[['application','⑤ 申込書の該当項目'],['free_conditions','④ 無料の仕組み・条件']]
   };
   const items=map[currentPhase?.id]||[];
@@ -844,18 +1045,18 @@ $('#return-step').addEventListener('click',()=>selectPhase($('#return-select').v
 $('#objection-button').addEventListener('click',()=>{$('#assist-panel').classList.add('attention');$('#customer-statement').focus()});
 $('#next-step').addEventListener('click',()=>{
   const index=config.phases.findIndex(phase=>phase.id===currentPhase.id);if(index<0||index===config.phases.length-1)return toast('最後のステップです。商談結果を保存してください。');
-  if(currentPhase.id==='test_closing'&&!gateComplete())return openGate();
+  if(currentPhase.id==='hp_interest'&&!gateComplete())return openGate();
   selectPhase(config.phases[index+1].id);
 });
 function gateRequirements(){
   const state=currentSession?.step_state||{};
   const checked=id=>Array.isArray(state[id])?state[id]:state[id]?.checked||[];
   return [
-    ['顧客ごとのHPの役割が決まっている',Boolean(currentSession?.context_data?.hpRole?.trim())],
-    ['顧客がその役割に納得している',checked('hp_role').includes(1)],
-    ['制作品質について肯定が取れている',checked('examples').includes(1)],
-    ['条件に問題がなければ作りたいという意思が取れている',checked('test_closing').includes(0)],
-    ['決裁者を確認している',checked('agenda').includes(3)]
+    ['HPに求める役割・用途を確認している',checked('hp_interest').includes(0)],
+    ['制作品質について肯定が取れている',checked('hp_interest').includes(1)],
+    ['費用がかからないなら喜ばれると確認できている',checked('hp_interest').includes(2)],
+    ['ホームページを作りたいという仮合意が取れている',checked('hp_interest').includes(3)],
+    ['決裁者を確認している',checked('agenda').includes(2)]
   ];
 }
 function gateComplete(){return gateRequirements().every(([,done])=>done)}
@@ -887,7 +1088,90 @@ $('#save-scratch-analysis').addEventListener('click',async()=>{
 });
 $('#save-fact').addEventListener('click',async()=>{if(!currentSession)return toast('先に商談を開始してください');try{await api(`/api/sales/sessions/${currentSession.id}/facts`,{method:'POST',body:JSON.stringify({category:$('#fact-category').value,value:$('#fact-value').value})});$('#fact-value').value='';await loadSessionRecord();toast('商談記録へ追加しました')}catch(error){toast(error.message)}});
 async function useSuggestion(index){await api(`/api/sales/suggestions/${currentSuggestion.id}/use`,{method:'POST',body:JSON.stringify({selectedCandidate:index})});$$('[data-use]').forEach((el,i)=>{el.textContent=i===index?'使用済み ✓':'この返答を使用';el.classList.toggle('used',i===index)});await loadSessionRecord();toast('使用した返答を記録しました')}
-$('#finish-button').addEventListener('click',()=>{if(!currentSession){toast('進行中の商談がありません');return}$('#finish-dialog').showModal()});$('#notes-button').addEventListener('click',()=>$('#finish-button').click());
+$('#finish-button').addEventListener('click',async()=>{if(!currentSession){toast('進行中の商談がありません');return}$('#finish-dialog').showModal();await openFinishDialog()});$('#notes-button').addEventListener('click',()=>$('#finish-button').click());
+// ===== 今回扱った商材・原文メモ・AI解析 =====
+const MEETING_PRODUCTS=[
+  {code:'enepal',label:'エネパル'},
+  {code:'amex',label:'AMEX'},
+  {code:'smbc_business_owners',label:'三井住友ビジネスオーナーズ'},
+  {code:'acom_ac_mastercard',label:'アコム（ACマスターカード）'},
+  {code:'none',label:'今回は商材提案なし'}
+];
+const NOTE_SOURCE_LABELS={during_meeting:'商談中',closing_form:'終了時追記',post_meeting:'商談後追記'};
+const noteTime=value=>{const date=new Date(value);return Number.isNaN(date.getTime())?'':date.toLocaleString('ja-JP',{month:'numeric',day:'numeric',hour:'2-digit',minute:'2-digit'})};
+function renderProductChecks(container,selected=[]){
+  if(!container)return;
+  container.textContent='';
+  for(const item of MEETING_PRODUCTS){
+    const input=el('input',{type:'checkbox',value:item.code});
+    input.checked=selected.includes(item.code);
+    // 「商材提案なし」は他商材と同時に選べない
+    input.addEventListener('change',()=>{
+      const boxes=[...container.querySelectorAll('input[type=checkbox]')];
+      if(input.value==='none'&&input.checked)boxes.forEach(box=>{if(box!==input)box.checked=false});
+      else if(input.checked)boxes.forEach(box=>{if(box.value==='none')box.checked=false});
+    });
+    const label=el('label',{class:'product-check'},[input,el('span',{text:item.label})]);
+    container.append(label);
+  }
+}
+const selectedFinishProducts=()=>[...$('#finish-products').querySelectorAll('input[type=checkbox]')].filter(box=>box.checked).map(box=>box.value);
+// 原文メモはAI解析と混ぜず、そのまま時系列で見せる
+function renderNoteList(container,notes,{onEdit,onDelete,onHistory}={}){
+  if(!container)return;
+  container.textContent='';
+  if(!notes.length){container.append(el('p',{class:'muted small',text:'メモはまだありません。'}));return}
+  for(const note of notes){
+    const head=el('small',{class:'note-head',text:[noteTime(note.created_at),note.phase_id&&phaseLabelOf(note.phase_id),NOTE_SOURCE_LABELS[note.source]||note.source,note.author_id].filter(Boolean).join('｜')});
+    const body=el('p',{class:'note-body',text:note.content});
+    const actions=el('div',{class:'note-actions'});
+    const add=(label,handler)=>{const button=el('button',{class:'secondary',type:'button',text:label});button.addEventListener('click',()=>handler(note));actions.append(button)};
+    if(onEdit)add('編集',onEdit);
+    if(onDelete)add('削除',onDelete);
+    if(onHistory&&note.updated_at&&note.updated_at!==note.created_at)add('編集履歴',onHistory);
+    container.append(el('article',{class:'note-item'},[head,body,actions.childElementCount?actions:null]));
+  }
+}
+const ANALYSIS_STATUS_LABELS={pending:'未解析',completed:'最新',stale:'メモ更新後・要再解析',failed:'解析失敗'};
+function renderAnalysis(statusNode,bodyNode,analysis){
+  if(statusNode){
+    statusNode.textContent='';
+    const status=analysis?.status||'pending';
+    statusNode.append(el('span',{class:`analysis-badge s-${status}`,text:ANALYSIS_STATUS_LABELS[status]||status}));
+    if(analysis?.edited_text)statusNode.append(el('span',{class:'analysis-badge edited',text:'担当者修正済み'}));
+    if(status==='stale')statusNode.append(el('span',{class:'analysis-note',text:'メモが更新されています。AI解析を更新してください。'}));
+    if(status==='failed')statusNode.append(el('span',{class:'analysis-note',text:'AI解析を作成できませんでした。商談記録は保存されています。'}));
+  }
+  if(bodyNode){
+    bodyNode.textContent='';
+    const text=analysis?.edited_text||analysis?.generated_text||'';
+    bodyNode.append(el('pre',{class:'analysis-text',text:text||'まだ解析していません。「AI解析を更新」を押してください。'}));
+  }
+}
+async function loadFinishAnalysis(){
+  if(!currentSession)return;
+  try{
+    const data=await api(`/api/fs/meetings/${encodeURIComponent(currentSession.id)}/analysis`);
+    renderAnalysis($('#finish-analysis-status'),$('#finish-analysis-body'),data.analysis);
+  }catch{renderAnalysis($('#finish-analysis-status'),$('#finish-analysis-body'),null)}
+}
+async function openFinishDialog(){
+  if(!currentSession)return;
+  try{
+    const data=await api(`/api/fs/meetings/${encodeURIComponent(currentSession.id)}/notes`);
+    renderProductChecks($('#finish-products'),data.products||[]);
+    renderNoteList($('#finish-note-list'),data.notes||[]);
+  }catch{renderProductChecks($('#finish-products'),[]);renderNoteList($('#finish-note-list'),[])}
+  await loadFinishAnalysis();
+}
+$('#finish-run-analysis').addEventListener('click',async()=>{
+  if(!currentSession)return;
+  const button=$('#finish-run-analysis');button.disabled=true;
+  try{
+    const data=await api(`/api/fs/meetings/${encodeURIComponent(currentSession.id)}/analysis`,{method:'POST',body:JSON.stringify({actor:currentSession.staff_id||'FS'})});
+    renderAnalysis($('#finish-analysis-status'),$('#finish-analysis-body'),data.analysis);
+  }catch(error){toast(error.message)}finally{button.disabled=false}
+});
 $('#pause-button').addEventListener('click',async()=>{
   if(!currentSession)return toast('進行中の商談がありません');
   try{
@@ -903,8 +1187,10 @@ $('#finish-form').addEventListener('submit',async event=>{
   event.preventDefault();
   // currentTarget は await のあと null になるため、ここで保持する
   const form=event.currentTarget,body=Object.fromEntries(new FormData(form));
-  if(!body.result)return toast('商談結果を選択してください');
   if(!currentSession)return toast('進行中の商談がありません');
+  // 商談結果は入力しない。今回扱った商材を送る。
+  body.products=selectedFinishProducts();
+  body.actor=currentSession.staff_id||'FS';
   const meetingId=currentSession.id;
   try{
     await FsMeetingNote.flush();

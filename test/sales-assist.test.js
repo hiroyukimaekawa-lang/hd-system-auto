@@ -14,7 +14,7 @@ function withStore(run) {
 }
 
 test('承認済みフェーズとアウト返し3件をAIなしで利用できる', () => withStore(store => {
-  assert.equal(store.phases().length, 15);
+  assert.equal(store.phases().length, 8);
   assert.equal(store.catalog().applicationGuide.sections.length,8);
   const session = store.start({ staffId:'テスト担当', customerName:'テスト店舗' });
   const suggestion = store.suggest({
@@ -73,7 +73,7 @@ test('ローカルで追加したトークスクリプトを再読込後も準�
   });
   assert.match(created.id,/^hd-local-/);
   assert.deepEqual(created.products,['ホームページ無料制作','エネパル']);
-  assert.equal(created.phase_count,15);
+  assert.equal(created.phase_count,8);
   assert.equal(created.local_created,1);
   store.seed();
   assert.equal(store.catalog().scripts.find(item=>item.id===created.id).name,'IS新アポ向けトーク');
@@ -232,9 +232,9 @@ test('中断した商談を再開でき、終了後は結果一覧へ移る', ()
   const prepared = store.prepare({ talkScriptId:'hd-new-ap-20260725', customerName:'中断テスト', meetingAt:'2026-08-05T14:00' });
   const session = store.openPreparation(prepared.id);
   assert.equal(store.activeDeals()[0].status, '商談中');
-  store.interrupt(session.id, { currentPhase:'hearing' });
+  store.interrupt(session.id, { currentPhase:'hp_interest' });
   assert.equal(store.activeDeals()[0].status, '商談中断');
-  assert.equal(store.activeDeals()[0].currentPhaseName, '③-3 店舗ヒアリング');
+  assert.equal(store.activeDeals()[0].currentPhaseName, 'HPに対する興味付け');
   const resumed = store.openPreparation(prepared.id);
   assert.equal(resumed.id, session.id);
   assert.equal(store.activeDeals()[0].status, '商談中');
@@ -435,4 +435,41 @@ test('資料開封ログを保存できる', () => withStore(store => {
   const logWithSection = store.logMaterialOpen(session.id, 'enepal-official-site', 'interview_phase_10', 'phase_10_provider_check');
   assert.equal(logWithSection.sectionId, 'phase_10_provider_check');
   assert.equal(store.logMaterialOpen('存在しない', 'some-material', '', ''), null);
+}));
+
+test('トークスクリプトを商談フローごと新規作成できる', () => withStore(store => {
+  const created = store.createTalkScript({
+    name:'新AP商談トーク（フロー作成）', products:'ホームページ無料制作、エネパル',
+    customerType:'店舗オーナー', version:'2026/08/06', actor:'管理者'
+  });
+  const flow = [
+    { group:'①', name:'前提のすり合わせと本日のアジェンダ', goal:'認識をそろえる', script:'認識のズレはなかったでしょうか？', questions:['認識にズレがない','決裁権を確認した'], transition:'認識が合えば②へ', prohibited:['絶対に儲かります'] },
+    { group:'②', name:'会社紹介となぜ今HPなのか', goal:'会社の背景を伝える', script:'それでは簡単に弊社のご紹介を', questions:['会社の背景を説明した'], transition:'印象を聞けたら③へ' },
+    { group:'③', name:'HPに対する興味付け', goal:'仮合意を得る', script:'ぱっと見どうですか？', questions:['クオリティの肯定が取れた'], transition:'仮合意が取れたら④へ' }
+  ];
+  const saved = store.replaceTalkScriptPhases(created.id, flow, { version:'2026/08/06', actor:'管理者' });
+  assert.equal(saved.phase_count, 3);
+
+  const phases = store.phases(created.id);
+  assert.deepEqual(phases.map(item => item.name), flow.map(item => item.name));
+  assert.deepEqual(phases.map(item => item.group_name), ['①','②','③']);
+  assert.deepEqual(phases[0].required_questions, ['認識にズレがない','決裁権を確認した']);
+  assert.deepEqual(phases[0].prohibited_phrases, ['絶対に儲かります']);
+  assert.equal(phases[1].transition_conditions, '印象を聞けたら③へ');
+  // 既定の8フェーズは影響を受けない
+  assert.equal(store.phases().length, 8);
+
+  // 差し替え（並べ替え・削除）ができる
+  store.replaceTalkScriptPhases(created.id, [flow[2], flow[0]], { actor:'管理者' });
+  assert.deepEqual(store.phases(created.id).map(item => item.name), [flow[2].name, flow[0].name]);
+  assert.equal(store.catalog().scripts.find(item => item.id === created.id).phase_count, 2);
+
+  // 作成したフローで商談を開始できる
+  const session = store.start({ talkScriptId:created.id, customerName:'フロー作成テスト' });
+  assert.equal(session.talk_script_id, created.id);
+  assert.equal(store.phases(session.talk_script_id).length, 2);
+
+  assert.throws(() => store.replaceTalkScriptPhases(created.id, []), /登録するフェーズがありません/);
+  assert.throws(() => store.replaceTalkScriptPhases('存在しないID', flow), /見つかりません/);
+  assert.ok(store.db.prepare("SELECT * FROM audit_logs WHERE action='replace_phases'").get());
 }));

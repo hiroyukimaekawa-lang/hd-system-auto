@@ -71,3 +71,27 @@
 .material-group-head p{grid-column:1/-1;margin:0;font-size:11.5px;color:var(--muted)}
 .material-group .material-list{padding:0;display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;overflow:visible}
 #materials-dialog-list{overflow-y:auto;padding:18px 26px 24px}
+
+/* トークスクリプトのフロー作成 */
+.script-flow-form{display:flex;flex-direction:column;min-height:0;overflow:hidden}
+.flow-meta{display:grid;grid-template-columns:repeat(auto-fit,minmax(210px,1fr));gap:12px;padding:16px 26px;border-bottom:1px solid var(--line)}
+.flow-meta label{display:grid;gap:5px;font-size:12px;color:var(--muted)}
+.flow-meta input{padding:9px 11px;border:1px solid var(--line);border-radius:8px;background:var(--panel);width:100%}
+.flow-toolbar{display:flex;gap:10px;align-items:center;padding:12px 26px;border-bottom:1px solid var(--line)}
+.flow-toolbar button{border:0;border-radius:9px;padding:8px 14px;font-size:12px;font-weight:700;cursor:pointer}
+.flow-phase-list{flex:1;min-height:0;overflow-y:auto;padding:16px 26px;display:grid;gap:12px}
+.flow-phase{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;display:grid;gap:10px}
+.flow-phase-head{display:flex;align-items:center;gap:10px;flex-wrap:wrap}
+.flow-phase-head .flow-index{font:700 13px Georgia;color:var(--green);background:#e8eee8;border-radius:999px;padding:3px 11px;white-space:nowrap}
+.flow-phase-head .flow-move{margin-left:auto;display:flex;gap:6px}
+.flow-phase-head button{border:0;border-radius:8px;padding:6px 10px;font-size:12px;font-weight:700;cursor:pointer;background:#e7e9e4}
+.flow-phase-head button.danger{background:#fce4df;color:#9d3927}
+.flow-grid{display:grid;grid-template-columns:90px 1fr 1fr;gap:10px}
+.flow-grid label{display:grid;gap:4px;font-size:11px;color:var(--muted)}
+.flow-grid label.wide{grid-column:1/-1}
+.flow-grid input,.flow-grid textarea{padding:8px 10px;border:1px solid var(--line);border-radius:8px;background:var(--paper);width:100%;font:inherit;font-size:13px}
+.flow-grid textarea{resize:vertical}
+.script-flow-form .actions{padding:14px 26px;border-top:1px solid var(--line);display:flex;gap:10px;align-items:center;justify-content:flex-end;background:var(--panel)}
+.script-flow-form .actions button{border:0;border-radius:9px;padding:10px 18px;font-weight:700;cursor:pointer}
+.script-flow-form .actions span{margin-right:auto}
+@media(max-width:900px){ .flow-grid{grid-template-columns:1fr} }

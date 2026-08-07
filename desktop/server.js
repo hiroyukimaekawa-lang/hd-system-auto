@@ -11,6 +11,7 @@ import { SerialWorker } from '../src/worker.js';
 import { SalesAssistStore } from '../src/sales-assist.js';
 import { ObsidianSalesArchive } from '../src/obsidian-sales-archive.js';
 import { LocalSqliteSalesMaterialRepository } from '../src/repositories/sqlite-sales-material-repository.js';
+import { analyzeMeeting, ANALYSIS_DISCLAIMER, MEETING_PRODUCTS } from '../src/meeting-analysis.js';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 loadEnv(path.join(root, '.env'));
@@ -33,6 +34,30 @@ const syncSession = id => { if (obsidian) obsidian.syncSession(sales,id); };
 const syncPreparation = id => { if (obsidian) obsidian.syncPreparation(sales,id); };
 const syncLibraries = () => { if (obsidian) obsidian.syncLibraries(sales); };
 // 案件を削除したら、書き出し済みのObsidianノートも消す（失敗しても案件削除は完了扱い）
+// AI解析。失敗しても商談記録は残し、status=failed として返す（商談終了は妨げない）。
+function runAnalysis(meetingId, body = {}) {
+  const session = sales.session(meetingId);
+  if (!session) return [404, { ok:false, text:'商談が見つかりません' }];
+  try {
+    const notes = sales.notes(meetingId) || [];
+    const result = analyzeMeeting({
+      notes,
+      products:sales.meetingProducts(meetingId),
+      nextAction:session.next_action || '',
+      reflection:session.reflection || '',
+      isNotes:session.context_data?.isNotes || '',
+      requiredAnswers:Object.values(session.step_state || {}).flatMap(state => Object.values(state?.notes || {}).map(note => note?.answer || '').filter(Boolean))
+    });
+    const analysis = sales.saveAnalysis(meetingId, { ...result, status:'completed', actor:body.actor || 'FS' });
+    syncSession(meetingId);
+    return [200, { ok:true, analysis, disclaimer:ANALYSIS_DISCLAIMER }];
+  } catch (error) {
+    // 解析本文はログへ出さず、失敗した事実だけ残す
+    console.error(`AI解析に失敗しました（meeting=${String(meetingId).slice(0, 8)}）: ${error.message}`);
+    const analysis = sales.saveAnalysis(meetingId, { analysis:{}, text:'', status:'failed', actor:body.actor || 'FS' });
+    return [200, { ok:true, analysis, text:'AI解析を作成できませんでした。商談記録は保存されています。', disclaimer:ANALYSIS_DISCLAIMER }];
+  }
+}
 const removeArchive = summary => {
   if (!obsidian) return { obsidianRemoved:0 };
   try { return { obsidianRemoved:obsidian.removeDeal(summary).length }; }
@@ -107,7 +132,7 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'GET' && request.url === '/api/sales/objection-history') return json(response, 200, { ok:true, objections:sales.objectionHistory() });
     if (request.method === 'GET' && /^\/api\/sales\/talk-scripts\/[^/]+\/objection-notes$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); return json(response,200,{ok:true,notes:sales.objectionNotes(id)}); }
     if (request.method === 'POST' && /^\/api\/sales\/talk-scripts\/[^/]+\/objection-notes$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const note=sales.addObjectionNote(id,body); if(note?.session_id)syncSession(note.session_id); syncLibraries(); return json(response,note?201:404,{ok:Boolean(note),note}); }
-    if (request.method === 'POST' && request.url === '/api/sales/talk-scripts') { const body=await readBody(request); const script=sales.createTalkScript(body); syncLibraries(); return json(response,201,{ok:true,script}); }
+    if (request.method === 'POST' && request.url === '/api/sales/talk-scripts') { const body=await readBody(request); try { const script=sales.createTalkScript(body); syncLibraries(); return json(response,201,{ok:true,script}); } catch (error) { return json(response,400,{ok:false,text:error.message}); } }
     if (request.method === 'POST' && request.url === '/api/sales/sessions') { const body=await readBody(request); return json(response, 201, { ok:true, session:sales.start(body) }); }
     if (request.method === 'POST' && request.url === '/api/sales/preparations') { const body=await readBody(request); const preparation=sales.prepare(body); syncPreparation(preparation.id); return json(response, 201, { ok:true, preparation }); }
     if (request.method === 'POST' && /^\/api\/sales\/preparations\/[^/]+\/open$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const session=sales.openPreparation(id); if(session)syncSession(session.id); return json(response,session?200:404,{ok:Boolean(session),session}); }
@@ -119,11 +144,23 @@ const server = http.createServer(async (request, response) => {
     if (request.method === 'POST' && /^\/api\/sales\/sessions\/[^/]+\/finish$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const session=sales.finish(id,body); if(session)syncSession(id); return json(response,session?200:404,{ ok:Boolean(session), session }); }
     if (request.method === 'PUT' && /^\/api\/sales\/sessions\/[^/]+\/progress$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const session=sales.updateProgress(id,body); return json(response,session?200:404,{ ok:Boolean(session), session }); }
     if (request.method === 'PUT' && /^\/api\/sales\/phases\/[^/]+$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const phase=sales.updatePhase(id,body); if(phase)syncLibraries(); return json(response,phase?200:404,{ ok:Boolean(phase), phase }); }
+    // トークスクリプトのフロー（フェーズ一式）をまとめて登録・差し替えする
+    if (request.method === 'PUT' && /^\/api\/sales\/talk-scripts\/[^/]+\/phases$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); try { const script=sales.replaceTalkScriptPhases(id,body.phases||[],body); syncLibraries(); return json(response,200,{ ok:true, script, phases:sales.phases(id) }); } catch (error) { return json(response,400,{ ok:false, text:error.message }); } }
     if (request.method === 'PUT' && /^\/api\/sales\/talk-scripts\/[^/]+$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const script=sales.updateTalkScript(id,body); if(script)syncLibraries(); return json(response,script?200:404,{ok:Boolean(script),script}); }
     if (request.method === 'GET' && /^\/api\/fs\/deals(\?|$)/.test(request.url)) { const url=new URL(request.url,'http://127.0.0.1'); const scope=url.searchParams.get('scope')||'active'; return json(response,200,{ ok:true, deals:scope==='finished'?sales.finishedDeals():scope==='all'?sales.deals():sales.activeDeals() }); }
     if (request.method === 'GET' && /^\/api\/fs\/deals\/[^/?]+$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const detail=sales.deal(id); return json(response,detail?200:404,{ ok:Boolean(detail), ...(detail||{ text:'案件が見つかりません' }) }); }
     if (request.method === 'PUT' && /^\/api\/fs\/deals\/[^/?]+$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const target=sales.deal(id); const updated=target?.preparation?sales.editPreparation(target.preparation.id,body):null; if(updated)syncPreparation(updated.id); return json(response,updated?200:404,{ ok:Boolean(updated), preparation:updated }); }
     if (request.method === 'DELETE' && /^\/api\/fs\/deals\/[^/?]+$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const removed=sales.deleteDeal(id,{ actor:'FS' }); return json(response,removed?200:404,{ ok:Boolean(removed), removed:removed&&{ ...removed, ...removeArchive(removed) }, ...(removed?{}:{ text:'案件が見つかりません' }) }); }
+    // ===== 原文メモ・商材・AI解析 =====
+    if (request.method === 'GET' && /^\/api\/fs\/meetings\/[^/]+\/notes$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const notes=sales.notes(id); return json(response,notes?200:404,{ ok:Boolean(notes), notes:notes||[], products:notes?sales.meetingProducts(id):[], text:notes?undefined:'商談が見つかりません' }); }
+    if (request.method === 'POST' && /^\/api\/fs\/meetings\/[^/]+\/notes$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); try { const note=sales.addNote(id,body); if(note)syncSession(id); return json(response,note?201:404,{ ok:Boolean(note), note, text:note?undefined:'商談が見つかりません' }); } catch (error) { return json(response,400,{ ok:false, text:error.message }); } }
+    if (request.method === 'PATCH' && /^\/api\/fs\/meetings\/[^/]+\/notes\/[^/?]+$/.test(request.url)) { const body=await readBody(request); const [,,,,id,,noteId]=request.url.split('/'); try { const note=sales.updateNote(decodeURIComponent(id),decodeURIComponent(noteId),body); if(note)syncSession(decodeURIComponent(id)); return json(response,note?200:404,{ ok:Boolean(note), note, text:note?undefined:'メモが見つかりません' }); } catch (error) { return json(response,400,{ ok:false, text:error.message }); } }
+    if (request.method === 'DELETE' && /^\/api\/fs\/meetings\/[^/]+\/notes\/[^/?]+$/.test(request.url)) { const [,,,,id,,noteId]=request.url.split('/'); const note=sales.deleteNote(decodeURIComponent(id),decodeURIComponent(noteId),'FS'); if(note)syncSession(decodeURIComponent(id)); return json(response,note?200:404,{ ok:Boolean(note), note, text:note?undefined:'メモが見つかりません' }); }
+    if (request.method === 'GET' && /^\/api\/fs\/meetings\/[^/]+\/notes\/[^/?]+\/revisions$/.test(request.url)) { const [,,,,id,,noteId]=request.url.split('/'); const revisions=sales.noteRevisions(decodeURIComponent(id),decodeURIComponent(noteId)); return json(response,revisions?200:404,{ ok:Boolean(revisions), revisions:revisions||[], text:revisions?undefined:'メモが見つかりません' }); }
+    if (request.method === 'PUT' && /^\/api\/fs\/meetings\/[^/]+\/products$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); try { const products=sales.setMeetingProducts(id,body.products||[],body.actor||'FS'); if(products)syncSession(id); return json(response,products?200:404,{ ok:Boolean(products), products:products||[], text:products?undefined:'商談が見つかりません' }); } catch (error) { return json(response,400,{ ok:false, text:error.message }); } }
+    if (request.method === 'GET' && /^\/api\/fs\/meetings\/[^/]+\/analysis$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); if(!sales.session(id)) return json(response,404,{ ok:false, text:'商談が見つかりません' }); return json(response,200,{ ok:true, analysis:sales.currentAnalysis(id), disclaimer:ANALYSIS_DISCLAIMER }); }
+    if (request.method === 'POST' && /^\/api\/fs\/meetings\/[^/]+\/analysis$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); return json(response,...runAnalysis(id,body)); }
+    if (request.method === 'PATCH' && /^\/api\/fs\/meetings\/[^/]+\/analysis\/[^/?]+$/.test(request.url)) { const body=await readBody(request); const [,,,,id,,analysisId]=request.url.split('/'); try { const analysis=sales.editAnalysis(decodeURIComponent(id),decodeURIComponent(analysisId),body); if(analysis)syncSession(decodeURIComponent(id)); return json(response,analysis?200:404,{ ok:Boolean(analysis), analysis, text:analysis?undefined:'解析結果が見つかりません' }); } catch (error) { return json(response,400,{ ok:false, text:error.message }); } }
     if (request.method === 'GET' && /^\/api\/fs\/meetings\/[^/]+\/memos$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const memos=sales.meetingMemos(id); return json(response,memos?200:404,{ ok:Boolean(memos), memos:memos||[], memoDraft:sales.session(id)?.memo_draft||'' }); }
     if (request.method === 'POST' && /^\/api\/fs\/meetings\/[^/]+\/memos$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const memo=sales.addMeetingMemo(id,body); if(memo)syncSession(id); return json(response,memo?201:404,{ ok:Boolean(memo), memo }); }
     if (request.method === 'PUT' && /^\/api\/fs\/meetings\/[^/]+\/memo-draft$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); const saved=sales.saveMemoDraft(id,body.content); return json(response,saved?200:404,{ ok:Boolean(saved), ...(saved||{}) }); }
@@ -167,7 +204,8 @@ const server = http.createServer(async (request, response) => {
     const file = path.resolve(publicDir, `.${pathname}`);
     if (!file.startsWith(publicDir) || !fs.existsSync(file) || fs.statSync(file).isDirectory()) { response.writeHead(404); return response.end('Not found'); }
     const types = { '.html': 'text/html; charset=utf-8', '.css': 'text/css; charset=utf-8', '.js': 'text/javascript; charset=utf-8', '.png': 'image/png' };
-    response.writeHead(200, { 'content-type': types[path.extname(file)] || 'application/octet-stream' }); fs.createReadStream(file).pipe(response);
+    // 画面ファイルを更新したら必ず新しい内容が読まれるようにする（古いCSS/JSの混在を防ぐ）
+    response.writeHead(200, { 'content-type': types[path.extname(file)] || 'application/octet-stream', 'cache-control': 'no-store' }); fs.createReadStream(file).pipe(response);
   } catch (error) {
     const message = /未対応のaction/.test(error.message)
       ? 'GAS Webアプリが更新前の版です。最新の headless-automation.gs を反映して再デプロイすると、この機能を利用できます。'
