@@ -1,5 +1,11 @@
 {
   "enabled": true,
   "vaultId": "720a81b628ab29d3",
-  "folder": "HD事業部/商談支援"
+  "folder": "HD事業部/商談支援",
+  "architecture": {
+    "rootNote": "HD事業部/HDシステム.md",
+    "isNote": "HD事業部/IS/IS.md",
+    "fsNote": "HD事業部/FS/FS.md",
+    "csNote": "HD事業部/CS/CS.md"
+  }
 }

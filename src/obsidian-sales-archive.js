@@ -86,6 +86,9 @@ next_action_at: "${session.next_action_at || ''}"
 talk_script: "${String(script?.name || session.talk_script_id).replaceAll('"', '\\"')}"
 session_id: "${session.id}"
 updated: "${new Date().toISOString()}"
+department: FS
+system_parent: HDシステム
+module: FS_商談管理
 ---
 
 # ${text(session.customer_name)}
@@ -147,6 +150,12 @@ ${text(session.notes)}
 ## 担当者の振り返り
 
 ${text(session.reflection)}
+
+## HDシステム
+
+- 親：[[FS]]
+- 上位：[[HDシステム]]
+- 機能：[[FS_商談管理]]
 `;
     return this.write(path.join('商談内容', '案件', `${safeName(session.customer_name)} - ${session.id.slice(0, 8)}.md`), body);
   }
@@ -165,6 +174,9 @@ next_action_at: "${item.next_action_at || ''}"
 talk_script: "${String(script?.name || item.talk_script_id).replaceAll('"', '\\"')}"
 preparation_id: "${item.id}"
 updated: "${new Date().toISOString()}"
+department: FS
+system_parent: HDシステム
+module: FS_商談準備
 ---
 
 # ${text(item.customer_name)} 商談準備
@@ -185,6 +197,12 @@ ${text(item.handoff)}
 ## 商談前の懸念
 
 ${text(item.concerns)}
+
+## HDシステム
+
+- 親：[[FS]]
+- 上位：[[HDシステム]]
+- 機能：[[FS_商談準備]]
 `;
     return this.write(path.join('商談内容', '商談準備', `${safeName(item.customer_name)} - ${item.id.slice(0, 8)}.md`), body);
   }
@@ -226,6 +244,9 @@ script_id: "${script.id}"
 version: "${script.version}"
 products: "${(script.products || []).join('・')}"
 updated: "${new Date().toISOString()}"
+department: FS
+system_parent: HDシステム
+module: FS_トークスクリプト
 ---
 
 # ${script.name}
@@ -238,6 +259,12 @@ updated: "${new Date().toISOString()}"
 ${phaseText}
 
 ${applicationText}
+
+## HDシステム
+
+- 親：[[FS]]
+- 上位：[[HDシステム]]
+- 機能：[[FS_トークスクリプト]]
 `;
       return this.write(path.join('各種スクリプト', `${safeName(script.name)}.md`), body);
     });
@@ -291,6 +318,12 @@ ${historyText || '記録なし'}
 # 反応・言質・返答記録
 
 ${notesText || '記録なし'}
+
+## HDシステム
+
+- 親：[[FS]]
+- 上位：[[HDシステム]]
+- 機能：[[FS_トークスクリプト]]
 `;
       return this.write(path.join('アウト返し集', `${safeName(script.name)} アウト返し集.md`), body);
     });
