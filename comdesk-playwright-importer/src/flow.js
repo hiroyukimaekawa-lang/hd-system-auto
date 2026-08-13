@@ -51,6 +51,36 @@ export function inferProjectName(workbookFile) {
   return `${[...prefectures][0]}_${[...municipalities].sort((a, b) => a.localeCompare(b, 'ja')).join('・')}`;
 }
 
+function resultWorkgroup(item) {
+  if (item?.workgroup) return String(item.workgroup).trim();
+  const sheetName = String(item?.sheetName || '').trim();
+  return sheetName.startsWith('04_SALES_') ? sheetName.slice('04_SALES_'.length).trim() : '';
+}
+
+export function isTransientRegistrationUiFailure(item) {
+  if (item?.status !== 'failed' || item?.importStatus === 'failed') return false;
+  if (!resultWorkgroup(item)) return false;
+  const message = String(item?.error || '');
+  return /select\[name=["']client_id["']\]/i.test(message)
+    || /アサインユーザーの選択欄が見つかりません/.test(message)
+    || /アサインユーザーが0人になっています/.test(message)
+    || /指定したアサインユーザーが画面にいません/.test(message);
+}
+
+export function mergeRetryResults(originalResults, retryResults, targetWorkgroups) {
+  const targets = targetWorkgroups instanceof Set ? targetWorkgroups : new Set(targetWorkgroups || []);
+  const replacements = new Map();
+  for (const item of retryResults || []) {
+    const workgroup = resultWorkgroup(item);
+    if (!targets.has(workgroup) || item?.status === 'skipped') continue;
+    replacements.set(workgroup, { ...item, workgroup });
+  }
+  return (originalResults || []).map((item) => {
+    const workgroup = resultWorkgroup(item);
+    return targets.has(workgroup) && replacements.has(workgroup) ? replacements.get(workgroup) : item;
+  });
+}
+
 export async function runFlow(options) {
   if (!options.dryRun && (!options.execute || process.env.COMDESK_EXECUTE !== 'true')) throw new Error('本番投入には--executeとCOMDESK_EXECUTE=trueの両方が必要です');
   const jobId = options.jobId || `${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}_${crypto.randomUUID().slice(0, 8)}`;
@@ -64,12 +94,35 @@ export async function runFlow(options) {
     else { event('downloading'); state.download = await downloadSpreadsheet(options.spreadsheetUrl, workbookFile); }
     state.workbookFile = workbookFile; const projectName = options.projectName || inferProjectName(workbookFile); state.projectName = projectName;
     event('validated', { projectName });
-    const resultFile = path.join(directory, 'comdesk-result.json'); const importerArgs = ['src/import.js', `--input=${workbookFile}`, `--project-name=${projectName}`, `--result-file=${resultFile}`, `--screenshots-dir=${path.join(directory, 'screenshots')}`];
+    const resultFile = path.join(directory, 'comdesk-result.json');
+    const baseImporterArgs = ['src/import.js', `--input=${workbookFile}`, `--project-name=${projectName}`, `--screenshots-dir=${path.join(directory, 'screenshots')}`];
+    const importerArgs = [...baseImporterArgs, `--result-file=${resultFile}`];
     if (options.dryRun) importerArgs.push('--dry-run');
     event(options.dryRun ? 'dry_running' : 'comdesk_registering');
-    const code = await runProcess(process.execPath, importerArgs, importerRoot, path.join(directory, 'comdesk.log'));
-    state.results = fs.existsSync(resultFile) ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : [];
-    if (code !== 0 || state.results.some((item) => item.status === 'failed' || item.importStatus === 'failed')) throw new Error(`コムデスク自動投入が安全停止しました（exit ${code}）`);
+    let code = await runProcess(process.execPath, importerArgs, importerRoot, path.join(directory, 'comdesk.log'));
+    let currentResults = fs.existsSync(resultFile) ? JSON.parse(fs.readFileSync(resultFile, 'utf8')) : [];
+
+    if (!options.dryRun) {
+      const maxRetries = Math.max(0, Number(process.env.COMDESK_UI_RETRY_ATTEMPTS ?? 3));
+      for (let attempt = 1; attempt <= maxRetries; attempt += 1) {
+        const retryable = currentResults.filter(isTransientRegistrationUiFailure);
+        if (!retryable.length) break;
+        const workgroups = [...new Set(retryable.map(resultWorkgroup).filter(Boolean))];
+        console.log(`\n通信未読込の可能性を検知: ${workgroups.join('、')}`);
+        console.log(`プロジェクト管理画面を再読込して自動再試行します (${attempt}/${maxRetries})`);
+        event('comdesk_ui_retrying', { attempt, maxRetries, workgroups });
+        const retryResultFile = path.join(directory, `comdesk-result.retry-${attempt}.json`);
+        const retryArgs = [...baseImporterArgs, `--result-file=${retryResultFile}`, `--only-workgroups=${workgroups.join(',')}`];
+        code = await runProcess(process.execPath, retryArgs, importerRoot, path.join(directory, `comdesk-retry-${attempt}.log`));
+        const retryResults = fs.existsSync(retryResultFile) ? JSON.parse(fs.readFileSync(retryResultFile, 'utf8')) : [];
+        currentResults = mergeRetryResults(currentResults, retryResults, new Set(workgroups));
+        fs.writeFileSync(resultFile, JSON.stringify(currentResults, null, 2));
+      }
+    }
+
+    state.results = currentResults;
+    const unresolved = currentResults.filter((item) => item.status === 'failed' || item.importStatus === 'failed');
+    if (code !== 0 || unresolved.length) throw new Error(`コムデスク自動投入が安全停止しました（exit ${code}）`);
     event(options.dryRun ? 'dry_run_completed' : 'completed'); return { state, directory };
   } catch (error) { state.error = error.message; event('failed'); throw Object.assign(error, { jobId, stateFile }); }
 }
