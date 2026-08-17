@@ -990,6 +990,20 @@ async function renderMaterialBar(){
   }catch{FsMaterials.renderBar(bar,[],{onOpenAll:()=>openMaterialsDialog(),message:'資料を読み込めませんでした'})}
 }
 const INTERVIEW_FIELD_LABELS={openedAtAndReason:'①開業時期・開業のきっかけ',strengthAndConcept:'②店舗の強み・コンセプト',recommendedProducts:'③おすすめ商品・メニュー',targetCustomers:'④増やしたいターゲット',futureVision:'⑤今後の展望',currentChallenges:'⑥現在の課題・理想とのギャップ'};
+const INTERVIEW_GUIDES={
+  openedAtAndReason:{topics:'開業時期 / 開業理由 / この業態を選んだ理由',basic:['いつ頃開業されましたか？','開業されたきっかけを教えてください。'],deep:['この業態を選ばれたのはなぜですか？','開業当初から大切にしていることは何ですか？']},
+  strengthAndConcept:{topics:'店舗の特徴 / 選ばれる理由 / 大切にしている価値',basic:['お店のコンセプトを教えてください。','他店との違いや、お店ならではの強みは何ですか？'],deep:['お客様から特に評価されるのはどんな点ですか？','その強みが伝わったと感じた具体的な出来事はありますか？']},
+  recommendedProducts:{topics:'看板商品 / おすすめ理由 / 利用してほしい場面',basic:['一番おすすめの商品・メニューは何ですか？','どのような点がおすすめですか？'],deep:['初めてのお客様には何を選んでほしいですか？','人気の理由や、こだわっている点を教えてください。']},
+  targetCustomers:{topics:'増やしたいお客様 / 利用シーン / 届けたい地域・層',basic:['今後、どのようなお客様を増やしたいですか？','どんな場面で利用してほしいですか？'],deep:['現在多いお客様との違いはありますか？','その方々に、まず何を知ってもらいたいですか？']},
+  futureVision:{topics:'今後の目標 / 実現したい姿 / 事業の広がり',basic:['今後、お店をどのようにしていきたいですか？','直近で実現したい目標はありますか？'],deep:['その目標が実現すると、何が一番変わりますか？','そのために今後力を入れたいことは何ですか？']},
+  currentChallenges:{topics:'現在の課題 / 改善意思 / 影響 / 理想 / 現在施策との差',basic:['現在、集客や情報発信で困っていることはありますか？','その課題を今後改善したいと思っていますか？'],deepSteps:[
+    {label:'改善意思',question:'その課題を、今後変えていきたいと思いますか？'},
+    {label:'理由',question:'なぜ今、それを変えたいと思っていますか？'},
+    {label:'影響',question:'現状によって、どんな困りごとや影響が出ていますか？'},
+    {label:'理想',question:'理想としては、どのような状態になっていたいですか？'},
+    {label:'ギャップ',question:'今行っている施策だけでは、何が足りないと感じますか？'}
+  ]}
+};
 const PHASE10_SECTION_NAMES={phase_10_scheme:'①無料制作の仕組み',phase_10_provider_check:'②現在の電力会社確認',phase_10_electricity_offer:'③エネパルの提案',phase_10_card_branch:'④カード・アフィリエイト（任意）',phase_10_application_form:'⑤申込書説明',phase_10_objection_pre_screening:'⑥申込前の懸念確認',phase_10_line_cloudsign:'⑦LINE・クラウドサイン'};
 const PHASE10_SECTION_SCRIPTS={
   phase_10_scheme:`ここから、今回なぜホームページを無料で制作できるのかと、制作にあたっての条件をご説明します。\n\n本来、ホームページ制作には、デザイナーやエンジニアの人件費、制作費、公開作業などの費用がかかります。\n\n今回は、店舗様からホームページの制作費をいただく代わりに、弊社が提携している会社から事業支援金をいただき、その支援金を制作費に充てる仕組みになっています。\n\n今回ご案内している提携先が、エネパルという電力会社です。\n\n現在お使いの電力会社からエネパルへお切り替えいただくことで、弊社に事業支援金が入り、その支援金をホームページの制作費に充てます。\n\nつまり、今回の無料制作の条件としては、\n\n「エネパルへの電気切り替えにご協力いただき、その代わりに弊社がホームページを無料で制作する」\n\nという内容になります。\n\nもちろん、現在の電気契約や明細を確認したうえで、対象プラン、料金、契約期間、解約条件などは正式にご説明します。\n\nこの条件で、ホームページ制作を進めさせていただいてもよろしいでしょうか？\n\n【料金が高くならないかと言われた場合】\n現時点で必ず安くなるとはお伝えできませんので、現在の明細と、エネパルの対象プランを確認したうえで比較します。\n\n【電気は変えたくないと言われた場合】\n理由は、現在の会社に満足、過去に料金が上がった、知人や取引先との関係、手続きや契約期間への不安、そもそも変えたくない、のどれが一番近いですか？`,
@@ -1013,13 +1027,25 @@ async function renderInterviewForm(container){
     try{const data=await api(`/api/fs/meetings/${encodeURIComponent(currentSession.id)}/interview`);interviewData={...data.data}}catch{}
   }
   container.textContent='';
-  const header=el('div',{class:'interview-form-header'},[el('span',{class:'eyebrow',text:'INTERVIEW'}),el('h3',{text:'インタビュー記録'}),el('p',{text:'6項目を入力してください。入力内容は自動保存されます。'})]);
+  const header=el('div',{class:'interview-form-header'},[el('span',{class:'eyebrow',text:'INTERVIEW'}),el('h3',{text:'インタビュー記録'}),el('p',{class:'interview-goal',text:'商談ゴール：〇〇様の場合、このHPの一番の役割は“○○”だと思っています。を1つ作る'}),el('p',{class:'muted small',text:'6項目を入力してください。入力内容は自動保存されます。'})]);
   const form=el('div',{class:'interview-form'});
   for(const [key,label] of Object.entries(INTERVIEW_FIELD_LABELS)){
+    const guide=INTERVIEW_GUIDES[key];
     const textarea=el('textarea',{rows:3,placeholder:`${label}の内容を記録`,'data-interview-field':key});
     textarea.textContent=interviewData[key]||'';
     textarea.addEventListener('input',()=>{interviewData[key]=textarea.value;scheduleInterviewSave()});
-    form.append(el('label',{class:'interview-field'},[el('span',{text:label}),textarea]));
+    const details=el('details',{class:'interview-guide-details'});
+    details.append(el('summary',{text:'質問ガイドを見る'}));
+    const guideBody=el('div',{class:'interview-guide-body'},[
+      el('div',{},[el('b',{text:'基本質問'}),el('ul',{},guide.basic.map(question=>el('li',{text:question})))])
+    ]);
+    if(guide.deepSteps){
+      guideBody.append(el('div',{class:'interview-deep-dive'},[el('b',{text:'縦深掘り 5STEP'}),...guide.deepSteps.map((step,index)=>el('div',{class:'interview-deep-step'},[el('span',{text:String(index+1)}),el('div',{},[el('strong',{text:step.label}),el('p',{text:step.question})])]))]));
+    }else{
+      guideBody.append(el('div',{},[el('b',{text:'深掘り質問'}),el('ul',{},guide.deep.map(question=>el('li',{text:question})))]));
+    }
+    details.append(guideBody);
+    form.append(el('div',{class:'interview-field'},[el('label',{},[el('span',{text:label}),textarea]),el('p',{class:'interview-topics'},[el('b',{text:'聞くこと：'}),document.createTextNode(guide.topics)]),details]));
   }
   container.append(header,form);
 }
