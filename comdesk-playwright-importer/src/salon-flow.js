@@ -63,7 +63,7 @@ async function main() {
       throw new Error('04_SALES_*_美容室 のシートがありません');
     }
 
-    console.log(`美容院専用モード: ${targetSheets.length}タブを検出しました`);
+    console.log(`美容室専用モード: ${targetSheets.length}タブを検出しました`);
     const baseJobId = values['job-id'] || `salon_${new Date().toISOString().replace(/[-:TZ.]/g, '').slice(0, 14)}`;
     const summaries = [];
 
@@ -86,7 +86,7 @@ async function main() {
       const singleFile = path.join(tempDir, `${String(index + 1).padStart(2, '0')}_${safeName(sheetName)}.xlsx`);
       XLSX.writeFile(singleWorkbook, singleFile);
 
-      console.log(`\n[${index + 1}/${targetSheets.length}] ${sheetName} → ${projectName} / 美容院 (${rows.length}件)`);
+      console.log(`\n[${index + 1}/${targetSheets.length}] ${sheetName} → ${projectName} / 美容室 (${rows.length}件)`);
       const { state } = await runFlow({
         input: singleFile,
         projectName,
@@ -97,7 +97,7 @@ async function main() {
       summaries.push({ sheetName, projectName, rows: rows.length, status: state.status });
     }
 
-    console.log('\n美容院専用処理結果');
+    console.log('\n美容室専用処理結果');
     console.log(JSON.stringify({ ok: true, dryRun, count: summaries.length, results: summaries }, null, 2));
   } finally {
     fs.rmSync(tempDir, { recursive: true, force: true });
