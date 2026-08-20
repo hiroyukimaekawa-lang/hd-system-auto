@@ -6,6 +6,7 @@
   "scripts": {
     "install-browser": "playwright install chromium",
     "login": "node src/login.js",
+    "google:login": "node src/google-login.js",
     "import": "node src/import.js",
     "import:dry": "node src/import.js --dry-run"
   },
