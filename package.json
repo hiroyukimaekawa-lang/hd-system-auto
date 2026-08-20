@@ -16,6 +16,8 @@
     "comdesk:auto:dry": "node comdesk-playwright-importer/src/flow.js --dry-run",
     "comdesk:limited:auto": "node comdesk-playwright-importer/src/limited-flow.js",
     "comdesk:limited:auto:dry": "node comdesk-playwright-importer/src/limited-flow.js --dry-run",
+    "comdesk:food6:auto": "node comdesk-playwright-importer/src/limited-flow.js --only-workgroups=カフェ,スイーツ,居酒屋,スナック,Bar,焼き鳥",
+    "comdesk:food6:auto:dry": "node comdesk-playwright-importer/src/limited-flow.js --dry-run --only-workgroups=カフェ,スイーツ,居酒屋,スナック,Bar,焼き鳥",
     "comdesk:auto:resume": "node comdesk-playwright-importer/src/resume.js",
     "comdesk:salon:auto": "node comdesk-playwright-importer/src/salon-flow.js",
     "comdesk:salon:auto:dry": "node comdesk-playwright-importer/src/salon-flow.js --dry-run",
