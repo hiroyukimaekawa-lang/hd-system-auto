@@ -49,9 +49,8 @@ for (const item of remaining) {
   const workgroup = item.workgroup;
   console.log(`\n再開処理: ${projectName} / ${workgroup}`);
 
-  // importStatus=failed は「送信クリック後にブラウザ側だけ失敗した」可能性がある。
-  // 二重送信を避けるため、まず完了通知だけを確認する。
-  if (item.importStatus === 'failed') {
+  // 送信クリック後に失敗した可能性があるケースは、二重送信を避ける。
+  if (item.importStatus === 'failed' && submissionMayHaveStarted(item)) {
     console.warn(`送信済みの可能性を検知。先に完了通知を確認します: ${projectName} / ${workgroup}`);
     const completionFirstReport = path.join(jobDirectory, `resume-completion-first-${safeName(workgroup)}.json`);
     const completionFirstCode = await runImporter([
@@ -66,7 +65,9 @@ for (const item of remaining) {
       resumeResults.push({ workgroup, status: 'completed', mode: 'completion-first-recovery' });
       continue;
     }
-    console.warn(`完了通知を確認できません。承認処理を安全に再開します: ${projectName} / ${workgroup}`);
+    console.error(`送信済みの可能性が残るため再送信せず未完了として記録します: ${projectName} / ${workgroup}`);
+    resumeResults.push({ workgroup, status: 'failed', mode: 'completion-first-no-resubmit' });
+    continue;
   }
 
   const finalizeReport = path.join(jobDirectory, `resume-finalize-${safeName(workgroup)}.json`);
@@ -116,6 +117,14 @@ const failed = resumeResults.filter((item) => item.status === 'failed');
 console.log(`\n再開結果: 成功${resumeResults.length - failed.length}件 / 未完了${failed.length}件`);
 console.log(`結果ファイル: ${resumeSummaryFile}`);
 if (failed.length) process.exitCode = 1;
+
+function submissionMayHaveStarted(item) {
+  const message = String(item?.importError || '');
+  if (!message) return item?.importStatus === 'failed';
+  if (/顧客インポート前の重複チェック処理/.test(message)) return false;
+  if (/重複確認画面|件数不一致|新規=追加|重複・禁止番号=除外/.test(message)) return false;
+  return /送信確認|インポート開始|顧客インポート処理を完了|完了通知|処理開始後/.test(message) || item?.importStatus === 'failed';
+}
 
 function runImporter(args) {
   return new Promise((resolve, reject) => {
