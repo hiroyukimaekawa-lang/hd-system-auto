@@ -5,6 +5,7 @@ import { spawn } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import dotenv from 'dotenv';
 import XLSX from 'xlsx';
+import { downloadGoogleSpreadsheetAuthenticated } from './google-auth.js';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const importerRoot = path.resolve(here, '..');
@@ -20,14 +21,22 @@ export function spreadsheetIdFromUrl(value) {
 
 export async function downloadSpreadsheet(url, destination, fetchImpl = fetch) {
   const id = spreadsheetIdFromUrl(url);
-  const response = await fetchImpl(`https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx`, { redirect: 'follow' });
-  const contentType = response.headers?.get?.('content-type') || '';
-  if (!response.ok || /text\/html/i.test(contentType)) throw new Error('スプレッドシートを取得できません。リンクの閲覧権限またはGoogleログインを確認してください');
-  const bytes = Buffer.from(await response.arrayBuffer());
-  if (bytes.length < 100 || bytes.subarray(0, 2).toString() !== 'PK') throw new Error('取得結果がExcelファイルではないため停止しました');
-  fs.mkdirSync(path.dirname(destination), { recursive: true });
-  fs.writeFileSync(destination, bytes);
-  return { id, bytes: bytes.length };
+  try {
+    const response = await fetchImpl(`https://docs.google.com/spreadsheets/d/${id}/export?format=xlsx`, { redirect: 'follow' });
+    const contentType = response.headers?.get?.('content-type') || '';
+    if (!response.ok || /text\/html/i.test(contentType)) throw new Error('スプレッドシートを公開URLから取得できません');
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length < 100 || bytes.subarray(0, 2).toString() !== 'PK') throw new Error('取得結果がExcelファイルではありません');
+    fs.mkdirSync(path.dirname(destination), { recursive: true });
+    fs.writeFileSync(destination, bytes);
+    return { id, bytes: bytes.length, authenticated: false };
+  } catch (error) {
+    // Tests and callers that inject their own fetch implementation should keep
+    // deterministic behavior and must not unexpectedly launch a browser.
+    if (fetchImpl !== fetch) throw error;
+    console.warn('[google-auth] 公開取得できないため、保存済みGoogleログイン状態で再取得します。');
+    return downloadGoogleSpreadsheetAuthenticated(url, destination);
+  }
 }
 
 export function inferProjectName(workbookFile) {
