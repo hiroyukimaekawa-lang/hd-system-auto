@@ -48,6 +48,27 @@ const resumeResults = [];
 for (const item of remaining) {
   const workgroup = item.workgroup;
   console.log(`\n再開処理: ${projectName} / ${workgroup}`);
+
+  // importStatus=failed は「送信クリック後にブラウザ側だけ失敗した」可能性がある。
+  // 二重送信を避けるため、まず完了通知だけを確認する。
+  if (item.importStatus === 'failed') {
+    console.warn(`送信済みの可能性を検知。先に完了通知を確認します: ${projectName} / ${workgroup}`);
+    const completionFirstReport = path.join(jobDirectory, `resume-completion-first-${safeName(workgroup)}.json`);
+    const completionFirstCode = await runImporter([
+      '--completion-only',
+      `--input=${sourceFile}`,
+      `--project-name=${projectName}`,
+      `--only-workgroups=${workgroup}`,
+      `--result-file=${completionFirstReport}`
+    ]);
+    if (completionFirstCode === 0) {
+      console.log(`完了通知を確認済みとして継続: ${projectName} / ${workgroup}`);
+      resumeResults.push({ workgroup, status: 'completed', mode: 'completion-first-recovery' });
+      continue;
+    }
+    console.warn(`完了通知を確認できません。承認処理を安全に再開します: ${projectName} / ${workgroup}`);
+  }
+
   const finalizeReport = path.join(jobDirectory, `resume-finalize-${safeName(workgroup)}.json`);
   const finalizeCode = await runImporter([
     '--finalize-only',
