@@ -1,0 +1,25 @@
+/* トークスクリプト管理：下書き/公開の状態表示・質問やNG表現の行編集・公開履歴 */
+.script-card footer{flex-wrap:wrap}
+.status.draft-pending{background:#fff0d7;color:#8b621f}
+.flow-header-actions{display:flex;align-items:center;gap:8px}
+.flow-header-actions button{border:0;background:#e7e9e4;border-radius:9px;padding:8px 12px;font-size:12px;font-weight:700;cursor:pointer}
+.flow-status-line{margin:0;padding:10px 26px;font-size:12px;color:var(--muted);background:#f4f3ed;border-bottom:1px solid var(--line)}
+.flow-list-box{display:grid;gap:8px;margin-top:14px}
+.flow-list-label{font-size:13px;font-weight:700}
+.fs-list-editor{display:grid;gap:8px}
+.fs-list-row{background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:6px}
+.fs-list-row-head{display:flex;align-items:center;gap:6px}
+.fs-list-row-label{font-size:11px;color:var(--muted);font-weight:700;margin-right:auto}
+.fs-list-row-move,.fs-list-row-remove{border:0;background:#e7e9e4;border-radius:7px;width:26px;height:26px;font-size:12px;cursor:pointer;padding:0}
+.fs-list-row-move:disabled{opacity:.35;cursor:default}
+.fs-list-row-remove{background:#fce4df;color:#9d3927;width:auto;padding:0 9px}
+.fs-list-row textarea{min-height:44px}
+.fs-list-empty{margin:0}
+.fs-list-add{justify-self:start;background:#e3f1e9;color:var(--green)}
+.fs-version-list{display:grid;gap:12px}
+.fs-version-row{background:#fff;border:1px solid var(--line);border-radius:14px;padding:16px 18px;display:grid;gap:8px}
+.fs-version-head{display:flex;align-items:center;gap:10px}
+.fs-version-head b{font:700 17px Georgia}
+.fs-version-action{font-size:11px;font-weight:700;background:#e3f1e9;color:var(--green);padding:4px 9px;border-radius:20px}
+.fs-version-action-restore{background:#fff0d7;color:#8b621f}
+.fs-version-head small{margin-left:auto;color:var(--muted)}
