@@ -1,6 +1,6 @@
 <!doctype html>
 <html lang="ja">
-<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HD事業部 統合システム</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/css/fs-meeting.css"><link rel="stylesheet" href="/css/fs-materials.css"><link rel="stylesheet" href="/css/is-list-generation.css"></head>
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>HD事業部 統合システム</title><link rel="stylesheet" href="/styles.css"><link rel="stylesheet" href="/css/fs-meeting.css"><link rel="stylesheet" href="/css/fs-materials.css"><link rel="stylesheet" href="/css/fs-script-admin.css"><link rel="stylesheet" href="/css/is-list-generation.css"></head>
 <body>
   <header class="topbar">
     <button class="brand nav-button" data-view="deals"><img src="/assistant-icon.png" alt=""><span><b>HD事業部</b><small>統合システム</small></span></button>
@@ -215,7 +215,8 @@
     <label class="wide">フェーズタグ（カンマ区切り）<input name="phaseTags" placeholder="例：card_amex, application"></label>
     <label class="wide">元ファイル名<input name="sourceTitle"></label>
   </div><div class="actions"><span id="material-form-message" class="muted small"></span><button type="button" id="close-material-form" class="secondary">キャンセル</button><button type="submit" class="primary">保存</button></div></form></dialog>
-  <dialog id="script-flow-dialog" class="materials-dialog"><div class="materials-shell"><header><div><span class="eyebrow">TALK SCRIPT FLOW</span><h2 id="script-flow-title">トークスクリプトを新規作成</h2><small>スクリプト名と商談フロー（フェーズ）をまとめて登録します。</small></div><button type="button" id="close-script-flow" aria-label="閉じる">×</button></header>
+  <dialog id="script-flow-dialog" class="materials-dialog"><div class="materials-shell"><header><div><span class="eyebrow">TALK SCRIPT FLOW</span><h2 id="script-flow-title">トークスクリプトを新規作成</h2><small>スクリプト名と商談フロー（フェーズ）をまとめて登録します。</small></div><div class="flow-header-actions"><button type="button" id="flow-history-button" class="secondary" hidden>履歴</button><button type="button" id="flow-duplicate-button" class="secondary" hidden>複製</button><button type="button" id="close-script-flow" aria-label="閉じる">×</button></div></header>
+    <div id="flow-status-line" class="flow-status-line" hidden></div>
     <form id="script-flow-form" class="script-flow-form">
       <details id="flow-import-details" class="flow-import"><summary>原稿を貼り付けて自動作成</summary>
         <div class="flow-import-body">
@@ -228,13 +229,15 @@
         <label>トークスクリプト名<input name="name" required maxlength="100" placeholder="例：新AP商談トーク"></label>
         <label>対象商材<input name="products" required placeholder="例：ホームページ無料制作、エネパル"></label>
         <label>対象顧客<input name="customerType" value="店舗オーナー・小規模事業者"></label>
-        <label>バージョン<input name="version" placeholder="例：2026/08/06"></label>
+        <label>バージョン表記<input name="version" placeholder="例：2026/08/06"></label>
+        <label class="wide">変更メモ（任意・履歴に残ります）<input name="changeNote" placeholder="例：HP温度感確認の質問を追加"></label>
       </div>
       <div class="flow-toolbar"><button type="button" id="flow-add-phase" class="secondary">＋ フェーズを追加</button><button type="button" id="flow-load-default" class="secondary">現在の商談フローを読み込む</button><span id="flow-count" class="muted small"></span></div>
       <div id="flow-phase-list" class="flow-phase-list"></div>
-      <div class="actions"><span id="script-flow-message" class="muted small"></span><button type="button" id="cancel-script-flow" class="secondary">キャンセル</button><button type="submit" id="script-flow-save-draft" class="secondary strong" hidden>保存（下書き）</button><button type="submit" id="script-flow-submit" class="primary">保存</button></div>
+      <div class="actions"><span id="script-flow-message" class="muted small"></span><button type="button" id="cancel-script-flow" class="secondary">キャンセル</button><button type="button" id="flow-preview-button" class="secondary">プレビュー</button><button type="button" id="flow-save-draft-button" class="secondary strong">下書き保存</button><button type="button" id="flow-publish-button" class="primary">公開する</button></div>
     </form>
   </div></dialog>
+  <dialog id="script-history-dialog" class="preparation-dialog"><div class="preparation-detail"><header><div><span>公開履歴</span><h2 id="script-history-title">トークスクリプトの履歴</h2></div><button id="close-script-history" aria-label="閉じる">×</button></header><div class="prep-detail-body"><div id="script-history-list" class="fs-version-list"></div></div></div></dialog>
   <dialog id="note-edit-dialog" class="rename-script-dialog"><form id="note-edit-form" method="dialog"><span class="eyebrow">MEETING NOTE</span><h2>メモを編集</h2><p>変更前の内容は編集履歴として残ります。空にはできません。</p><label>メモ<textarea id="note-edit-input" rows="6" required></textarea></label><div class="actions"><button value="cancel" class="secondary">キャンセル</button><button value="save" class="primary">保存</button></div></form></dialog>
   <dialog id="note-history-dialog" class="preparation-dialog"><div class="preparation-detail"><header><div><span>編集履歴</span><h2>メモの変更履歴</h2></div><button id="close-note-history" aria-label="閉じる">×</button></header><div class="prep-detail-body"><div id="note-history-list" class="note-list"></div></div></div></dialog>
   <dialog id="analysis-edit-dialog" class="create-script-dialog"><form id="analysis-edit-form" method="dialog"><span class="eyebrow">AI ANALYSIS</span><h2>解析結果を編集</h2><p>担当者の修正版として保存します。AIが生成した内容は残り、再解析でも無断で上書きされません。</p><label>整理結果<textarea id="analysis-edit-input" rows="14" required></textarea></label><div class="actions"><button value="cancel" class="secondary">キャンセル</button><button value="save" class="primary">保存</button></div></form></dialog>
@@ -245,6 +248,7 @@
   <script src="/js/fs-deal-header.js"></script>
   <script src="/js/fs-meeting-note.js"></script>
   <script src="/js/fs-materials.js"></script>
+  <script src="/js/fs-script-admin.js"></script>
   <script src="/app.js"></script>
   <script src="/js/is-list-generation.js"></script>
 </body></html>

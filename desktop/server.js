@@ -143,7 +143,10 @@ const server = http.createServer(async (request, response) => {
     }
     if (request.method === 'GET' && request.url.startsWith('/api/sales/config')) {
       const url=new URL(request.url,'http://127.0.0.1');
-      return json(response, 200, { ok:true, phases:sales.phases(url.searchParams.get('talkScriptId')||undefined), objections:sales.objections() });
+      const sessionId=url.searchParams.get('sessionId');
+      // 進行中・終了済みの商談は開始時点で固定したフェーズ内容を返す（スクリプトが後から編集・公開されても内容を変えない）
+      const phases=sessionId?sales.sessionPhases(sessionId):null;
+      return json(response, 200, { ok:true, phases:phases||sales.phases(url.searchParams.get('talkScriptId')||undefined), objections:sales.objections() });
     }
     if (request.method === 'GET' && request.url === '/api/sales/catalog') return json(response, 200, { ok:true, ...sales.catalog() });
     if (request.method === 'GET' && request.url === '/api/sales/sessions') return json(response, 200, { ok:true, sessions:sales.recent() });
@@ -167,6 +170,21 @@ const server = http.createServer(async (request, response) => {
       return json(response, 200, { ok:true, ...result, aiUsed });
     }
     if (request.method === 'POST' && /^\/api\/sales\/talk-scripts\/[^/]+\/publish$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); try { const script=sales.publishTalkScript(id,body.actor||'FS'); if(script)syncLibraries(); return json(response,script?200:404,{ok:Boolean(script),script,...(script?{}:{text:'トークスクリプトが見つかりません'})}); } catch (error) { return json(response,400,{ok:false,text:error.message}); } }
+    // ===== トークスクリプト管理：下書き・公開・履歴・復元・複製・既定設定 =====
+    if (request.method === 'GET' && /^\/api\/sales\/talk-scripts\/[^/]+$/.test(request.url)) {
+      const id=decodeURIComponent(request.url.split('/')[4]);
+      const script=sales.catalog().scripts.find(item=>item.id===id);
+      if(!script) return json(response,404,{ok:false,text:'トークスクリプトが見つかりません'});
+      return json(response,200,{ok:true,script,workingCopy:sales.scriptWorkingCopy(id),versions:sales.talkScriptVersions(id,10)});
+    }
+    if (request.method === 'PUT' && /^\/api\/sales\/talk-scripts\/[^/]+\/draft$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); try { const workingCopy=sales.saveDraft(id,body); return json(response,200,{ok:true,workingCopy}); } catch (error) { return json(response,400,{ok:false,text:error.message}); } }
+    if (request.method === 'DELETE' && /^\/api\/sales\/talk-scripts\/[^/]+\/draft$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); const body=await readBody(request).catch(()=>({})); const workingCopy=sales.discardDraft(id,body.actor||'管理者'); return json(response,workingCopy?200:404,{ok:Boolean(workingCopy),workingCopy,...(workingCopy?{}:{text:'トークスクリプトが見つかりません'})}); }
+    if (request.method === 'POST' && /^\/api\/sales\/talk-scripts\/[^/]+\/publish-draft$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); try { const result=sales.publishDraft(id,body); syncLibraries(); return json(response,200,{ok:true,...result}); } catch (error) { return json(response,400,{ok:false,text:error.message}); } }
+    if (request.method === 'GET' && /^\/api\/sales\/talk-scripts\/[^/]+\/versions$/.test(request.url)) { const id=decodeURIComponent(request.url.split('/')[4]); return json(response,200,{ok:true,versions:sales.talkScriptVersions(id)}); }
+    if (request.method === 'GET' && /^\/api\/sales\/talk-scripts\/[^/]+\/versions\/[^/]+$/.test(request.url)) { const parts=request.url.split('/'); const id=decodeURIComponent(parts[4]); const version=sales.talkScriptVersion(id,decodeURIComponent(parts[6])); return json(response,version?200:404,{ok:Boolean(version),version,...(version?{}:{text:'バージョンが見つかりません'})}); }
+    if (request.method === 'POST' && /^\/api\/sales\/talk-scripts\/[^/]+\/restore$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); try { const result=sales.restoreTalkScriptVersion(id,body.version,body.actor||'管理者'); syncLibraries(); return json(response,200,{ok:true,...result}); } catch (error) { return json(response,400,{ok:false,text:error.message}); } }
+    if (request.method === 'POST' && /^\/api\/sales\/talk-scripts\/[^/]+\/duplicate$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); try { const script=sales.duplicateTalkScript(id,body); syncLibraries(); return json(response,201,{ok:true,script}); } catch (error) { return json(response,400,{ok:false,text:error.message}); } }
+    if (request.method === 'POST' && /^\/api\/sales\/talk-scripts\/[^/]+\/set-default$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); try { const script=sales.setDefaultTalkScript(id,body.actor||'管理者'); return json(response,script?200:404,{ok:Boolean(script),script,...(script?{}:{text:'トークスクリプトが見つかりません'})}); } catch (error) { return json(response,400,{ok:false,text:error.message}); } }
     if (request.method === 'POST' && /^\/api\/sales\/talk-scripts\/[^/]+\/archive$/.test(request.url)) { const body=await readBody(request); const id=decodeURIComponent(request.url.split('/')[4]); try { const script=sales.archiveTalkScript(id,body.actor||'FS'); if(script)syncLibraries(); return json(response,script?200:404,{ok:Boolean(script),script,...(script?{}:{text:'トークスクリプトが見つかりません'})}); } catch (error) { return json(response,400,{ok:false,text:error.message}); } }
     if (request.method === 'POST' && request.url === '/api/sales/sessions') { const body=await readBody(request); return json(response, 201, { ok:true, session:sales.start(body) }); }
     if (request.method === 'POST' && request.url === '/api/sales/preparations') { const body=await readBody(request); const preparation=sales.prepare(body); syncPreparation(preparation.id); return json(response, 201, { ok:true, preparation }); }

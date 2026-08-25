@@ -26,6 +26,20 @@ export function loadSalesCatalog(root = moduleRoot) {
 const parse = (value, fallback = []) => {
   try { return JSON.parse(value); } catch { return fallback; }
 };
+const scriptMetaOf = script => ({ name:script.name, products:parse(script.products), customerType:script.customer_type||'', version:script.version||'' });
+// phases()が返すDB行の形（base_script/required_questions等）を、下書き編集・publishDraft/restoreが共通で使う形（script/questions等）へそろえる
+const phaseRowToFlow = row => ({ id:row.id, order:row.phase_order, group:row.group_name, name:row.name, goal:row.goal, script:row.base_script, questions:Array.isArray(row.required_questions)?row.required_questions:[], transition:row.transition_conditions, prohibited:Array.isArray(row.prohibited_phrases)?row.prohibited_phrases:[] });
+const normalizePhaseList = (talkScriptId, phases) => phases.map((item,index) => ({
+  id:item.id||`${talkScriptId}-${index+1}`,
+  order:item.order||index+1,
+  group:item.group||String(index+1).padStart(2,'0'),
+  name:String(item.name||'').trim(),
+  goal:item.goal||'',
+  script:item.script||'',
+  questions:Array.isArray(item.questions)?item.questions.map(v=>String(v||'').trim()).filter(Boolean):[],
+  transition:item.transition||'',
+  prohibited:Array.isArray(item.prohibited)?item.prohibited.map(v=>String(v||'').trim()).filter(Boolean):[]
+}));
 // 申込・審査進捗（AA/A/B/C/D）と案件進捗（A/B/C/D/E/XA/XB）は同じA/Bコードでも別軸。設定ファイルは一度読み込んで使い回す。
 let cachedProgressConfig = null;
 export function loadProgressConfig(root = moduleRoot) {
@@ -190,6 +204,8 @@ export class SalesAssistStore {
       CREATE TABLE IF NOT EXISTS deal_progress(deal_id TEXT PRIMARY KEY, deal_stage_code TEXT DEFAULT '', application_progress_code TEXT DEFAULT '', updated_by TEXT DEFAULT '', updated_at TEXT);
       CREATE TABLE IF NOT EXISTS deal_progress_history(id TEXT PRIMARY KEY, deal_id TEXT, axis TEXT, from_status TEXT DEFAULT '', to_status TEXT, reason TEXT, source TEXT DEFAULT 'manual', changed_by TEXT DEFAULT '', changed_at TEXT);
       CREATE INDEX IF NOT EXISTS deal_progress_history_deal ON deal_progress_history(deal_id, changed_at);
+      CREATE TABLE IF NOT EXISTS talk_script_versions(id TEXT PRIMARY KEY, talk_script_id TEXT, version_number INTEGER, version_label TEXT DEFAULT '', meta_json TEXT DEFAULT '{}', phases_json TEXT DEFAULT '[]', change_note TEXT DEFAULT '', action TEXT DEFAULT 'publish', restored_from INTEGER, created_by TEXT DEFAULT '', created_at TEXT);
+      CREATE INDEX IF NOT EXISTS talk_script_versions_script ON talk_script_versions(talk_script_id, version_number);
     `);
     // 既存の商談メモを論理削除・編集履歴つきの原文メモとして扱えるようにする（追加のみ）
     this.ensureColumn('meeting_memos','deal_id',"TEXT DEFAULT ''");
@@ -226,6 +242,13 @@ export class SalesAssistStore {
     this.ensureColumn('talk_scripts','supersedes_script_id',"TEXT DEFAULT ''");
     this.ensureColumn('talk_scripts','content_hash',"TEXT DEFAULT ''");
     this.ensureColumn('talk_scripts','default_for_preparation',"INTEGER DEFAULT 0");
+    // 下書き（未公開の編集内容）は公開済みの内容とは別カラムに保持し、公開するまで商談中の画面へ反映させない
+    this.ensureColumn('talk_scripts','draft_json',"TEXT");
+    this.ensureColumn('talk_scripts','draft_updated_at',"TEXT DEFAULT ''");
+    this.ensureColumn('talk_scripts','draft_change_note',"TEXT DEFAULT ''");
+    this.ensureColumn('talk_scripts','version_number',"INTEGER DEFAULT 1");
+    // 商談開始時点のフェーズ内容を固定し、開始後にスクリプトが編集・公開されても進行中の商談には反映しない
+    this.ensureColumn('sales_sessions','talk_script_phases_snapshot',"TEXT");
     this.seed();
   }
   ensureColumn(table,column,type) {
@@ -249,7 +272,18 @@ export class SalesAssistStore {
       const catalogScriptIds = catalog.scripts.map(item=>item.id);
       if (catalogScriptIds.length) this.db.prepare(`DELETE FROM talk_scripts WHERE local_created=0 AND id NOT IN (${catalogScriptIds.map(()=>'?').join(',')})`).run(...catalogScriptIds);
       const departmentInsert = this.db.prepare('INSERT INTO departments(id,name,description,status,updated_at) VALUES(?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET name=excluded.name,description=excluded.description,status=excluded.status,updated_at=excluded.updated_at');
-      const scriptInsert = this.db.prepare('INSERT INTO talk_scripts(id,department_id,name,products,customer_type,version,status,updated_at,phase_count,default_for_preparation) VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET department_id=excluded.department_id,name=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.name ELSE excluded.name END,products=excluded.products,customer_type=excluded.customer_type,version=excluded.version,status=excluded.status,updated_at=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.updated_at ELSE excluded.updated_at END,phase_count=excluded.phase_count,default_for_preparation=excluded.default_for_preparation');
+      // title_customized=1は「管理画面がこの行の内容を引き継いだ」印。以降は起動のたびに初期カタログ値で上書きしない（下書き/公開・件数・版表記・状態すべてを含む）
+      const scriptInsert = this.db.prepare(`INSERT INTO talk_scripts(id,department_id,name,products,customer_type,version,status,updated_at,phase_count,default_for_preparation) VALUES(?,?,?,?,?,?,?,?,?,?)
+        ON CONFLICT(id) DO UPDATE SET
+          department_id=excluded.department_id,
+          name=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.name ELSE excluded.name END,
+          products=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.products ELSE excluded.products END,
+          customer_type=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.customer_type ELSE excluded.customer_type END,
+          version=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.version ELSE excluded.version END,
+          status=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.status ELSE excluded.status END,
+          updated_at=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.updated_at ELSE excluded.updated_at END,
+          phase_count=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.phase_count ELSE excluded.phase_count END,
+          default_for_preparation=CASE WHEN talk_scripts.title_customized=1 THEN talk_scripts.default_for_preparation ELSE excluded.default_for_preparation END`);
       for (const item of catalog.departments) departmentInsert.run(item.id,item.name,item.description,item.status,now());
       const interviewAppointmentImport = loadInterviewAppointmentImport();
       for (const item of catalog.scripts) {
@@ -298,7 +332,10 @@ export class SalesAssistStore {
   }
   catalog() {
     const departments=this.db.prepare('SELECT * FROM departments ORDER BY name').all();
-    const scripts=dedupeByContentHash(this.db.prepare('SELECT * FROM talk_scripts ORDER BY department_id,status DESC,name').all().map(row=>({...row,products:parse(row.products)})));
+    const scripts=dedupeByContentHash(this.db.prepare('SELECT * FROM talk_scripts ORDER BY department_id,status DESC,name').all().map(row=>{
+      const { draft_json, ...rest } = row;
+      return { ...rest, products:parse(row.products), has_draft:Boolean(draft_json) };
+    }));
     const applicationGuide=loadSalesCatalog().applicationGuide;
     return { departments, scripts, applicationGuide };
   }
@@ -346,28 +383,148 @@ export class SalesAssistStore {
     this.audit(actor,'archive','talk_script',id,{previousStatus:script.status});
     return this.catalog().scripts.find(item=>item.id===id);
   }
+  // 公開テーブル（talk_script_phases, status='published'）へ直接書き込む共通処理。replaceTalkScriptPhases・publishDraft・restoreTalkScriptVersionから使う
+  _writePublishedPhaseRows(talkScriptId,phases,timestamp) {
+    const insert=this.db.prepare('INSERT INTO talk_script_phases(id,talk_script_id,phase_order,group_name,name,goal,base_script,required_questions,transition_conditions,prohibited_phrases,version,status,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    this.db.prepare('DELETE FROM talk_script_phases WHERE talk_script_id=?').run(talkScriptId);
+    const normalized=normalizePhaseList(talkScriptId,phases);
+    for(const row of normalized)insert.run(row.id,talkScriptId,row.order,row.group,row.name,row.goal,row.script,JSON.stringify(row.questions),row.transition,JSON.stringify(row.prohibited),1,'published',timestamp);
+    return normalized;
+  }
   replaceTalkScriptPhases(talkScriptId,phases,data={}) {
     const script=this.db.prepare('SELECT * FROM talk_scripts WHERE id=?').get(talkScriptId);if(!script)throw new Error('対象のトークスクリプトが見つかりません');
     if(!Array.isArray(phases)||!phases.length)throw new Error('登録するフェーズがありません');
-    const timestamp=now(),insert=this.db.prepare('INSERT INTO talk_script_phases(id,talk_script_id,phase_order,group_name,name,goal,base_script,required_questions,transition_conditions,prohibited_phrases,version,status,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)');
+    const timestamp=now();
     this.db.transaction(()=>{
-      this.db.prepare('DELETE FROM talk_script_phases WHERE talk_script_id=?').run(talkScriptId);
-      phases.forEach((item,index)=>insert.run(item.id||`${talkScriptId}-${index+1}`,talkScriptId,item.order||index+1,item.group||String(index+1).padStart(2,'0'),item.name,item.goal||'',item.script||'',JSON.stringify(item.questions||[]),item.transition||'',JSON.stringify(item.prohibited||[]),1,'published',timestamp));
-      this.db.prepare('UPDATE talk_scripts SET phase_count=?,version=?,updated_at=? WHERE id=?').run(phases.length,data.version||script.version,timestamp,talkScriptId);
+      this._writePublishedPhaseRows(talkScriptId,phases,timestamp);
+      this.db.prepare("UPDATE talk_scripts SET phase_count=?,version=?,updated_at=?,title_customized=1 WHERE id=?").run(phases.length,data.version||script.version,timestamp,talkScriptId);
     })();
     this.audit(data.actor||'管理者','replace_phases','talk_script',talkScriptId,{phaseCount:phases.length,version:data.version||script.version});
     return this.catalog().scripts.find(item=>item.id===talkScriptId);
+  }
+  // ===== 下書き（未公開の編集内容）。draft_jsonは公開済みテーブルとは別列で、公開するまでFS商談画面・他の商談には一切反映しない =====
+  scriptWorkingCopy(talkScriptId) {
+    const script=this.db.prepare('SELECT * FROM talk_scripts WHERE id=?').get(talkScriptId);if(!script)return null;
+    if(script.draft_json){
+      try{
+        const draft=JSON.parse(script.draft_json);
+        if(Array.isArray(draft.phases)&&draft.phases.length)return{ meta:{...scriptMetaOf(script),...draft.meta}, phases:draft.phases, hasDraft:true, draftUpdatedAt:script.draft_updated_at||'', draftChangeNote:script.draft_change_note||'' };
+      }catch{}
+    }
+    return { meta:scriptMetaOf(script), phases:this.phases(talkScriptId).map(phaseRowToFlow), hasDraft:false, draftUpdatedAt:'', draftChangeNote:'' };
+  }
+  saveDraft(talkScriptId,data={}) {
+    const script=this.db.prepare('SELECT * FROM talk_scripts WHERE id=?').get(talkScriptId);if(!script)throw new Error('対象のトークスクリプトが見つかりません');
+    if(!Array.isArray(data.phases)||!data.phases.length)throw new Error('登録するフェーズがありません');
+    const missing=data.phases.findIndex(item=>!String(item.name||'').trim());
+    if(missing>=0)throw new Error(`フェーズ${missing+1}のフェーズ名を入力してください`);
+    const name=String(data.meta?.name??script.name).trim();
+    if(!name)throw new Error('トークスクリプト名を入力してください');
+    const meta={
+      name,
+      products:Array.isArray(data.meta?.products)?data.meta.products.map(v=>String(v||'').trim()).filter(Boolean):parse(script.products),
+      customerType:String(data.meta?.customerType??script.customer_type??''),
+      version:String(data.meta?.version??script.version??'')
+    };
+    const phases=normalizePhaseList(talkScriptId,data.phases);
+    const timestamp=now();
+    this.db.prepare('UPDATE talk_scripts SET draft_json=?,draft_updated_at=?,draft_change_note=? WHERE id=?')
+      .run(JSON.stringify({meta,phases}),timestamp,String(data.changeNote||''),talkScriptId);
+    this.audit(data.actor||'管理者','save_draft','talk_script',talkScriptId,{phaseCount:phases.length});
+    return this.scriptWorkingCopy(talkScriptId);
+  }
+  discardDraft(talkScriptId,actor='管理者') {
+    const script=this.db.prepare('SELECT * FROM talk_scripts WHERE id=?').get(talkScriptId);if(!script)return null;
+    this.db.prepare("UPDATE talk_scripts SET draft_json=NULL,draft_updated_at='',draft_change_note='' WHERE id=?").run(talkScriptId);
+    this.audit(actor,'discard_draft','talk_script',talkScriptId,{});
+    return this.scriptWorkingCopy(talkScriptId);
+  }
+  // 公開：下書き（無ければ現在の公開内容）を新しいバージョンとして反映する。進行中の商談は開始時点のスナップショットを見ているため影響しない
+  publishDraft(talkScriptId,options={}) {
+    const script=this.db.prepare('SELECT * FROM talk_scripts WHERE id=?').get(talkScriptId);if(!script)throw new Error('対象のトークスクリプトが見つかりません');
+    const working=this.scriptWorkingCopy(talkScriptId);
+    if(!working.phases.length)throw new Error('公開できるフェーズがありません');
+    const actor=options.actor||'管理者';
+    const changeNote=String(options.changeNote??working.draftChangeNote??'').trim();
+    const nextVersionNumber=(script.version_number||1)+(script.status==='published'?1:0)||1;
+    const timestamp=now();
+    this.db.transaction(()=>{
+      this._writePublishedPhaseRows(talkScriptId,working.phases,timestamp);
+      this.db.prepare("UPDATE talk_scripts SET name=?,products=?,customer_type=?,version=?,version_number=?,status='published',phase_count=?,updated_at=?,draft_json=NULL,draft_updated_at='',draft_change_note='',title_customized=1 WHERE id=?")
+        .run(working.meta.name,JSON.stringify(working.meta.products||[]),working.meta.customerType,working.meta.version,nextVersionNumber,working.phases.length,timestamp,talkScriptId);
+      this.db.prepare('INSERT INTO talk_script_versions(id,talk_script_id,version_number,version_label,meta_json,phases_json,change_note,action,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)')
+        .run(`tsv_${crypto.randomUUID()}`,talkScriptId,nextVersionNumber,working.meta.version||'',JSON.stringify(working.meta),JSON.stringify(working.phases),changeNote,'publish',actor,timestamp);
+    })();
+    this.audit(actor,'publish','talk_script',talkScriptId,{versionNumber:nextVersionNumber,phaseCount:working.phases.length,changeNote});
+    return { script:this.catalog().scripts.find(item=>item.id===talkScriptId), versionNumber:nextVersionNumber };
+  }
+  talkScriptVersions(talkScriptId,limit=50) {
+    return this.db.prepare('SELECT id,talk_script_id,version_number,version_label,change_note,action,restored_from,created_by,created_at FROM talk_script_versions WHERE talk_script_id=? ORDER BY version_number DESC, created_at DESC LIMIT ?').all(talkScriptId,limit);
+  }
+  talkScriptVersion(talkScriptId,versionNumber) {
+    const row=this.db.prepare('SELECT * FROM talk_script_versions WHERE talk_script_id=? AND version_number=?').get(talkScriptId,Number(versionNumber));
+    if(!row)return null;
+    return { ...row, meta:parse(row.meta_json,{}), phases:parse(row.phases_json,[]) };
+  }
+  // 復元：履歴そのものは書き換えず、過去バージョンの内容を新しいバージョンとして公開する
+  restoreTalkScriptVersion(talkScriptId,versionNumber,actor='管理者') {
+    const target=this.talkScriptVersion(talkScriptId,versionNumber);if(!target)throw new Error('復元対象のバージョンが見つかりません');
+    const script=this.db.prepare('SELECT * FROM talk_scripts WHERE id=?').get(talkScriptId);if(!script)throw new Error('対象のトークスクリプトが見つかりません');
+    const nextVersionNumber=(script.version_number||1)+1;
+    const timestamp=now();
+    this.db.transaction(()=>{
+      this._writePublishedPhaseRows(talkScriptId,target.phases,timestamp);
+      this.db.prepare("UPDATE talk_scripts SET name=?,products=?,customer_type=?,version=?,version_number=?,status='published',phase_count=?,updated_at=?,draft_json=NULL,draft_updated_at='',draft_change_note='',title_customized=1 WHERE id=?")
+        .run(target.meta.name||script.name,JSON.stringify(target.meta.products||[]),target.meta.customerType||script.customer_type,target.meta.version||script.version,nextVersionNumber,target.phases.length,timestamp,talkScriptId);
+      this.db.prepare('INSERT INTO talk_script_versions(id,talk_script_id,version_number,version_label,meta_json,phases_json,change_note,action,restored_from,created_by,created_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)')
+        .run(`tsv_${crypto.randomUUID()}`,talkScriptId,nextVersionNumber,target.meta.version||'',JSON.stringify(target.meta),JSON.stringify(target.phases),`Ver.${Number(versionNumber)}から復元`,'restore',Number(versionNumber),actor,timestamp);
+    })();
+    this.audit(actor,'restore','talk_script',talkScriptId,{restoredFrom:Number(versionNumber),versionNumber:nextVersionNumber});
+    return { script:this.catalog().scripts.find(item=>item.id===talkScriptId), versionNumber:nextVersionNumber };
+  }
+  duplicateTalkScript(sourceId,options={}) {
+    const source=this.db.prepare('SELECT * FROM talk_scripts WHERE id=?').get(sourceId);if(!source)throw new Error('複製元のトークスクリプトが見つかりません');
+    const working=this.scriptWorkingCopy(sourceId);
+    const id=`hd-local-${crypto.randomUUID()}`,timestamp=now(),name=`${working.meta.name} のコピー`;
+    const meta={...working.meta,name};
+    // 複製元のフェーズIDをそのまま使うと、複製先を公開したときに複製元のtalk_script_phases行と主キーが衝突するため、複製先専用のIDへ振り直す
+    const phases=working.phases.map((item,index)=>({ ...item, id:`${id}-${index+1}` }));
+    this.db.prepare('INSERT INTO talk_scripts(id,department_id,name,products,customer_type,version,status,updated_at,phase_count,title_customized,local_created,draft_json,draft_updated_at,version_number) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)')
+      .run(id,source.department_id,name,JSON.stringify(meta.products||[]),meta.customerType,meta.version,'draft',timestamp,phases.length,1,1,JSON.stringify({meta,phases}),timestamp,1);
+    this.audit(options.actor||'管理者','duplicate','talk_script',id,{sourceId,name});
+    return this.catalog().scripts.find(item=>item.id===id);
+  }
+  setDefaultTalkScript(id,actor='管理者') {
+    const script=this.db.prepare('SELECT * FROM talk_scripts WHERE id=?').get(id);if(!script)return null;
+    if(script.status!=='published')throw new Error('公開中のトークスクリプトのみ既定にできます');
+    this.db.transaction(()=>{
+      this.db.prepare('UPDATE talk_scripts SET default_for_preparation=0 WHERE department_id=?').run(script.department_id);
+      this.db.prepare("UPDATE talk_scripts SET default_for_preparation=1,title_customized=1,updated_at=? WHERE id=?").run(now(),id);
+    })();
+    this.audit(actor,'set_default','talk_script',id,{});
+    return this.catalog().scripts.find(item=>item.id===id);
   }
   objections() { return this.db.prepare('SELECT * FROM objections WHERE status=? ORDER BY category,subcategory').all('published'); }
   start(data) {
     const talkScript=this.db.prepare('SELECT * FROM talk_scripts WHERE id=? AND status=?').get(data.talkScriptId||this.defaultTalkScriptId(),'published');
     if(!talkScript) throw new Error('公開中のトークスクリプトを選択してください');
     const id = crypto.randomUUID(); const started = now();
-    this.db.prepare(`INSERT INTO sales_sessions(id,staff_id,customer_name,business_type,owner_name,meeting_type,product_id,existing_hp,electricity_company,handoff,concerns,current_phase,department_id,talk_script_id,talk_script_version,context_data,deal_id,started_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
-      .run(id,data.staffId||'',data.customerName||'',data.businessType||'飲食店',data.ownerName||'',data.meetingType||'',data.productId||talkScript.products,data.existingHp||'',data.electricityCompany||'',data.handoff||'',data.concerns||'','agenda',talkScript.department_id,talkScript.id,talkScript.version,JSON.stringify(buildContext(data)),data.dealId||`deal_${crypto.randomUUID()}`,started);
+    // 開始時点で公開されているフェーズ内容を固定する。以後スクリプトが編集・公開されても、この商談の表示は変わらない
+    const phasesSnapshot = JSON.stringify(this.phases(talkScript.id));
+    this.db.prepare(`INSERT INTO sales_sessions(id,staff_id,customer_name,business_type,owner_name,meeting_type,product_id,existing_hp,electricity_company,handoff,concerns,current_phase,department_id,talk_script_id,talk_script_version,context_data,deal_id,started_at,talk_script_phases_snapshot) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`)
+      .run(id,data.staffId||'',data.customerName||'',data.businessType||'飲食店',data.ownerName||'',data.meetingType||'',data.productId||talkScript.products,data.existingHp||'',data.electricityCompany||'',data.handoff||'',data.concerns||'','agenda',talkScript.department_id,talkScript.id,talkScript.version,JSON.stringify(buildContext(data)),data.dealId||`deal_${crypto.randomUUID()}`,started,phasesSnapshot);
     this.db.prepare('UPDATE talk_scripts SET use_count=use_count+1 WHERE id=?').run(talkScript.id);
     this.audit(data.staffId||'FS','start','sales_session',id,{ customerName:data.customerName||'' });
     return this.session(id);
+  }
+  // 進行中（または終了済み）の商談が実際に見ていたフェーズ内容。開始時点のスナップショットを最優先し、無い旧データだけ現行の公開内容にフォールバックする
+  sessionPhases(sessionId) {
+    const row=this.db.prepare('SELECT talk_script_id,talk_script_phases_snapshot FROM sales_sessions WHERE id=?').get(sessionId);
+    if(!row)return null;
+    if(row.talk_script_phases_snapshot){
+      try{ const snapshot=JSON.parse(row.talk_script_phases_snapshot); if(Array.isArray(snapshot)&&snapshot.length)return snapshot; }catch{}
+    }
+    return this.phases(row.talk_script_id);
   }
   prepare(data) {
     const talkScript=this.db.prepare('SELECT * FROM talk_scripts WHERE id=? AND status=?').get(data.talkScriptId||this.defaultTalkScriptId(),'published');
@@ -719,7 +876,7 @@ export class SalesAssistStore {
       talkScriptId:source.talk_script_id||'',
       talkScriptVersion:source.talk_script_version||'',
       currentPhaseId:session?.current_phase||'',
-      currentPhaseName:session?this.phaseName(session.talk_script_id,session.current_phase):'',
+      currentPhaseName:session?((this.sessionPhases(session.id)||[]).find(p=>p.id===session.current_phase)?.name||session.current_phase||''):'',
       nextAction:session?.next_action||preparation?.next_action||'',
       nextActionAt:session?.next_action_at||preparation?.next_action_at||'',
       result:session?.result||'',
