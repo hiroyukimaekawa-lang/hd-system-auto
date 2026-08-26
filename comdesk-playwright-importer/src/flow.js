@@ -63,7 +63,10 @@ export function inferProjectName(workbookFile) {
 function resultWorkgroup(item) {
   if (item?.workgroup) return String(item.workgroup).trim();
   const sheetName = String(item?.sheetName || '').trim();
-  return sheetName.startsWith('04_SALES_') ? sheetName.slice('04_SALES_'.length).trim() : '';
+  if (!sheetName.startsWith('04_SALES_')) return '';
+  const inferred = sheetName.slice('04_SALES_'.length).trim();
+  if (/_(?:美容室|美容院|ヘアサロン)$/.test(inferred)) return '美容院';
+  return inferred;
 }
 
 export function isTransientRegistrationUiFailure(item) {
